@@ -1,0 +1,48 @@
+{
+  "name": "fibercell",
+  "version": "1.0.0",
+  "license": "MIT",
+  "description": "fibercell",
+  "author": {
+    "name": "Stefan Zerkalica",
+    "email": "zerkalica@gmail.com"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": "https://github.com/zerkalica/fibercell",
+  "bugs": {
+    "url": "https://github.com/zerkalica/fibercell/issues"
+  },
+  "homepage": "https://github.com/zerkalica/fibercell/packages/fibercell/#readme",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "typings": "dist/index.d.ts",
+  "files": [
+    "*.map",
+    "*.js",
+    "*.md",
+    "package.json",
+    "LICENSE",
+    "@types",
+    "dist"
+  ],
+  "keywords": [
+    "fetch",
+    "sync",
+    "fibers",
+    "threads",
+    "observable",
+    "streams"
+  ],
+  "peerDependencies": {
+    "typescript": "=>2.8.3"
+  },
+  "devDependencies": {
+    "@types/react": "^16.4.11",
+    "@types/react-dom": "^16.0.7",
+    "mobx": "^5.0.0",
+    "react": "^16.4.2",
+    "react-dom": "^16.4.2"
+  }
+}
