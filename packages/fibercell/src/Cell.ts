@@ -39,12 +39,7 @@ export class Cell<V> implements FiberController, FiberHost, ICell {
         /**
          * @throws Promise<V> | Error
          **/
-        protected get: () => V,
-        /**
-         * @throws Promise<V> | Error
-         **/
-        protected set: (next: V) => void,
-        protected host: Object,
+        protected handler: (next?: V) => V,
         protected dispose?: () => void,
     ) {}
 
@@ -145,9 +140,7 @@ export class Cell<V> implements FiberController, FiberHost, ICell {
 
         const {status, suggested} = this
         try {
-            let next: V = suggested === undefined
-                ? this.get.call(this.host)
-                : this.set.call(this.host, suggested)
+            let next: V = this.handler(suggested)
 
             if (next === undefined) next = context.result
             if (next === undefined) next = suggested
@@ -206,9 +199,7 @@ export class Cell<V> implements FiberController, FiberHost, ICell {
         this.actual = undefined
         this.status = CellStatus.OBSOLETE
         this.dispose = undefined
-        this.get = undefined
-        this.set = undefined
-        this.host = undefined
+        this.handler = undefined
         this.suggested = undefined
     }
 }

@@ -11,15 +11,10 @@ export class MobxCell<V> extends Cell<V> {
         /**
          * @throws Promise<V> | Error
          **/
-        get: () => V,
-        /**
-         * @throws Promise<V> | Error
-         **/
-        set: (next: V) => void,
-        host: Object,
+        handler: (next?: V) => V,
         dispose?: () => void,
     ) {
-        super(displayName, get, set, host, dispose)
+        super(displayName, handler, dispose)
         this.atom = createAtom(name, undefined, this.destructor.bind(this))
         this.reaction = new Reaction(displayName, this.retry.bind(this))
     }

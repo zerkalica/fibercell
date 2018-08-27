@@ -49,24 +49,36 @@ function actionMethodDecorator<Target, Method extends ActionMethod>(
     }
 }
 
-export function actionDecorator<Target, Method extends ActionMethod>(
-    selector?: ((t: Target) => Queue) | void
-): ActionMethodDecorator<Target, Method>
+// export function action<Target, Method extends ActionMethod>(
+//     selector?: ((t: Target) => Queue) | void
+// ): ActionMethodDecorator<Target, Method>
 
-export function actionDecorator<Target, Method extends ActionMethod>(
-    proto: Class<Target>,
-    name: string,
-    descr: TypedPropertyDescriptor<Method>
-): TypedPropertyDescriptor<Method>
+// export function action<Target, Method extends ActionMethod>(
+//     proto: Class<Target>,
+//     name: string,
+//     descr: TypedPropertyDescriptor<Method>
+// ): TypedPropertyDescriptor<Method>
 
-export function actionDecorator<Target, Method extends ActionMethod>() {
-    const selectorOrProto = arguments[0]
-    const arg: string | void = arguments[1]
-    if (arg) return actionMethodDecorator(selectorOrProto, arg, arguments[2])
+export interface Action {
+    <Target, Method extends ActionMethod>(
+        proto: Class<Target>,
+        name: string,
+        descr: TypedPropertyDescriptor<Method>
+    ): TypedPropertyDescriptor<Method>
+    <Target, Method extends ActionMethod>(
+        selector?: ((t: Target) => Queue) | void
+    ): ActionMethodDecorator<Target, Method>
+    defer: Action
+}
+
+export const action = (<Target, Method extends ActionMethod>(...args: any[]) => {
+    const selectorOrProto = args[0]
+    const arg: string | void = args[1]
+    if (arg) return actionMethodDecorator(selectorOrProto, arg, args[2])
 
     return (
         proto: Object,
         name: string,
         descr: TypedPropertyDescriptor<Method>
     ) => actionMethodDecorator(proto, name, descr, selectorOrProto)
-}
+}) as Action

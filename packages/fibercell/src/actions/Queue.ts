@@ -84,7 +84,7 @@ export class Queue {
         this.changed()
     }
 
-    @cellDecorator protected get status(): QueueStatus {
+    @cellDecorator get status(): QueueStatus {
         const tasks = this.tasks || (this.tasks = [])
         const status = new QueueStatus(this)
         if (this.type !== QueueType.PARALLEL && tasks.length > 0) {

@@ -1,4 +1,4 @@
-import {isPromise, proxify} from './utils'
+import {isPromise, proxifyError} from './utils'
 
 const fiberKey = Symbol('Fiber')
 
@@ -118,7 +118,7 @@ export class Fiber<V> {
         }
 
         if (this.catched) {
-            if (this.async) return (this.catched = proxify(this.catched as any))
+            if (this.async) return (this.catched = proxifyError(this.catched as any))
             throw this.catched
         }
 

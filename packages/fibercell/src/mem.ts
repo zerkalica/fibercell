@@ -1,6 +1,6 @@
 import {Cell, ICell} from './Cell'
-import {cellDecorator, cellDecoratorState, CellProperty} from './cellDecorator'
-import {actionDecorator} from './actions'
+import {cellDecorator, cellKeyDecorator, cellDecoratorState, CellProperty} from './cellDecorator'
+import {action} from './actions'
 import {rollback} from './utils'
 /**
  * Public API cell facade
@@ -20,9 +20,11 @@ export interface IMem {
      * }
      * ```
      */
-    <V extends CellProperty<V>>(proto: Object, name: string, descr: TypedPropertyDescriptor<V>): TypedPropertyDescriptor<V>
+    <V extends CellProperty<V>>(proto: Object, name: string | symbol, descr: TypedPropertyDescriptor<V>): TypedPropertyDescriptor<V>
+    (proto: Object, name: string | symbol): void
 
-    action: typeof actionDecorator // <Target, Method extends ActionMethod>ActionDecorator<Target, Method>
+    action: typeof action // <Target, Method extends ActionMethod>ActionDecorator<Target, Method>
+    key: typeof cellKeyDecorator
 
     /**
      * Check cell raw value. Used for restarting pending actions and for accessing cell status.
@@ -68,13 +70,16 @@ export interface IMem {
      * @throws Error | Promise<any>
      */
     throwRollback(v: Error | Promise<any>, cb: () => void): void
+
+    mapFrom<K, V>(method: (key: K, next?: V) => V): Map<K, V>
 }
 
 /**
  * Public API facade
  */
 export const mem = cellDecorator as IMem
-mem.action = actionDecorator
+mem.action = action
+mem.key = cellKeyDecorator
 mem.throwRollback = rollback
 mem.suggest = <V>(v: V) => {
     Cell.result = v
@@ -102,6 +107,12 @@ Object.defineProperties(mem, {
         get() {
             cellDecoratorState.returnCell = true
             return callRetry
+        }
+    },
+    mapFrom: {
+        get() {
+            cellDecoratorState.returnCell = true
+            return pass
         }
     },
     state: {

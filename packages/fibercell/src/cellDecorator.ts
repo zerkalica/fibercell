@@ -15,30 +15,22 @@ export function setupCellClass(NewCell: typeof Cell) {
     cellDecoratorState.FiberCell = NewCell
 }
 
-function createInitializer<V>(initializer: (() => V) | void, name: string): () => V {
-    const get = function() {
-        return initializer ? initializer.call(this) : undefined
-    }
-    setFunctionName(get, `${name}#get`)
-    return get
-}
-
-function createSetter<V>(name: string): (next?: V) => V {
-    const set = function(next?: V): any { return next }
-    setFunctionName(set, `${name}#set`)
-    return set
-}
+function valueGet<V>(): any {}
+function valueSet<V>(next?: V): any { return next }
 
 export function cellDecorator<V extends CellProperty<V>>(
     proto: Object,
-    name: string,
-    descr: TypedPropertyDescriptor<V>
+    name: string | symbol,
+    descr?: (TypedPropertyDescriptor<V> & {initializer?: () => V}) | void
 ): TypedPropertyDescriptor<V> {
-    const handlerKey = `${name}$`
-    if (proto[handlerKey] !== undefined) return descr
     const displayName = getId(proto, name)
-    const get: () => V = descr.get || createInitializer((descr as any).initializer, name)
-    const set: (next: V) => void = descr.set || createSetter(name)
+    const get: () => V = (descr && (descr.get || descr.initializer)) || valueGet
+    const set: (next: V) => void = (descr && descr.set) || valueSet
+
+    function handler<V>(next?: V): V {
+        return next === undefined ? get.call(this) : set.call(this, next)
+    }
+    setFunctionName(handler, `${displayName}$get_set`)
 
     const cells: WeakMap<Object, Cell<V>> = new WeakMap()
     const cf = cellDecoratorState
@@ -47,9 +39,7 @@ export function cellDecorator<V extends CellProperty<V>>(
         if (cell === undefined) {
             cell = new cf.FiberCell(
                 displayName,
-                get,
-                set,
-                this,
+                handler.bind(this),
                 cells.delete.bind(cells, this)
             )
             cells.set(this, cell)
@@ -70,9 +60,58 @@ export function cellDecorator<V extends CellProperty<V>>(
     setFunctionName(value, `${displayName}()`)
 
     return {
-        enumerable: descr.enumerable,
-        configurable: descr.configurable,
+        enumerable: descr ? descr.enumerable : false,
+        configurable: descr ? descr.configurable : true,
         get: value,
         set: value,
+    }
+}
+
+export type CellKeyProperty<K, V> = (key: K, next?: V) => V
+
+function cleanMap<K, V>(key: K, cellMap: Map<K, V>, cells: WeakMap<Object, Map<K, V>>) {
+    cellMap.delete(key)
+    if (cellMap.size === 0) cells.delete(this)
+}
+
+export function cellKeyDecorator<K, V, Method extends CellKeyProperty<K, V>>(
+    proto: Object,
+    name: string | symbol,
+    descr: TypedPropertyDescriptor<Method>
+): TypedPropertyDescriptor<Method> {
+    const displayName = getId(proto, name)
+
+    const cells: WeakMap<Object, Map<K, Cell<V>>> = new WeakMap()
+    const cf = cellDecoratorState
+    const handler: Method = descr.value
+
+    function value(key: K, next?: V): V {
+        let cellMap = cells.get(this)
+        if (cellMap === undefined) {
+            cellMap = new Map()
+            cells.set(this, cellMap)
+        }
+        let cell = cellMap.get(key)
+
+        if (cell === undefined) {
+            cell = new cf.FiberCell(
+                displayName,
+                handler.bind(this, key),
+                cleanMap.bind(this, key, cellMap, cells)
+            )
+            cellMap.set(this, cell)
+        }
+
+        if (cf.returnCell) return cellMap as any
+
+        return cell.value(next)
+    }
+
+    setFunctionName(value, `${displayName}()`)
+
+    return {
+        enumerable: descr.enumerable,
+        configurable: descr.configurable,
+        value: value as Method,
     }
 }

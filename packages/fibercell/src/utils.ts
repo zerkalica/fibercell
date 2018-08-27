@@ -1,5 +1,5 @@
-export function getId(t: Object, hk: string): string {
-    return `${(t.constructor as any).displayName || t.constructor.name}.${hk}`;
+export function getId(t: Object, hk: string | symbol): string {
+    return `${(t.constructor as any).displayName || t.constructor.name}.${hk.toString()}`;
 }
 
 export function isPromise(target: any): target is Promise<any> {
@@ -28,16 +28,16 @@ const throwOnAccess: ProxyHandler<any> = {
     }
 }
 
-export function proxify<V extends Object>(v: V): V {
+export function proxifyError<V extends Object>(v: V): V {
     return v[origId] ? v : new Proxy(v, throwOnAccess) as any
 }
 
-export function unproxify<V extends Object>(v: V): V {
+export function unproxifyError<V extends Object>(v: V): V {
     return v[origId] || v
 }
 
 export function hasDestructor(obj: any): obj is {destructor(): void} {
-    return obj && typeof obj === 'object' && typeof unproxify(obj).destructor === 'function'
+    return obj && typeof obj === 'object' && typeof unproxifyError(obj).destructor === 'function'
 }
 
 const rollbackKey = Symbol('rollback')
@@ -47,7 +47,7 @@ const rollbackKey = Symbol('rollback')
  */
 export function rollback(rawData: void | Error | Promise<any>, cb?: (() => void)): void {
     if (!rawData) return
-    const data = unproxify(rawData)
+    const data = unproxifyError(rawData)
     if (cb) {
         const prev = data[rollbackKey]
         data[rollbackKey] = prev
