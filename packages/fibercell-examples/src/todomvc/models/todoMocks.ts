@@ -51,19 +51,20 @@ export function todoMocks(rawStorage: Storage) {
             method: 'GET',
             matcher: new RegExp('/api/todo/(.*)/info'),
             response(url: string, params: RequestInit, id: string) {
-                const data = infoStorage.get()
-                const i = data.find((inf) => inf.id === id)
-                return {id, description: i ? i.description : 'desc'} as ITodoInfo
+                const i = infoStorage.get().find(inf => inf.id === id)
+
+                return {
+                    id,
+                    description: i ? i.description : 'desc'
+                } as ITodoInfo
             }
         },
         {
             method: 'PUT',
             matcher: new RegExp('/api/todos'),
             response(url: string, params: RequestInit) {
-                const todos: void | ITodo[] = todoStorage.get()
                 const updates: Map<string, Partial<ITodo>> = new Map(getBody(params.body))
-
-                const newTodos = todos
+                const newTodos = todoStorage.get()
                     .map(todo => {
                         return {...todo, ...updates.get(todo.id)} as ITodo
                     })
@@ -77,9 +78,8 @@ export function todoMocks(rawStorage: Storage) {
             method: 'DELETE',
             matcher: new RegExp('/api/todos'),
             response(url: string, params: RequestInit) {
-                const todos: ITodo[] = todoStorage.get()
                 const ids: string[] = getBody(params.body)
-                const newTodos = todos.filter(todo =>
+                const newTodos = todoStorage.get().filter(todo =>
                     ids.indexOf(todo.id) === -1
                 )
                 todoStorage.set(newTodos)
@@ -91,8 +91,7 @@ export function todoMocks(rawStorage: Storage) {
             method: 'DELETE',
             matcher: new RegExp('/api/todo/(.*)'),
             response(url: string, params: RequestInit, id: string) {
-                const todos: ITodo[] = todoStorage.get()
-                const newTodos = todos.filter(todo => todo.id !== id)
+                const newTodos = todoStorage.get().filter(todo => todo.id !== id)
                 todoStorage.set(newTodos.sort(sortByDate))
 
                 return {id}
@@ -102,9 +101,8 @@ export function todoMocks(rawStorage: Storage) {
             method: 'POST',
             matcher: new RegExp('/api/todo/(.*)'),
             response(url: string, params: RequestInit, id: string) {
-                const data: ITodo[] = todoStorage.get()
                 const newTodo = getBody(params.body)
-                const newTodos = (data || []).map(todo => (todo.id === id ? newTodo : todo))
+                const newTodos = todoStorage.get().map(todo => (todo.id === id ? newTodo : todo))
                 todoStorage.set(newTodos)
 
                 return newTodo
@@ -114,7 +112,6 @@ export function todoMocks(rawStorage: Storage) {
             method: 'PUT',
             matcher: new RegExp('/api/todo'),
             response(url: string, params: RequestInit) {
-                const todos: ITodo[] = todoStorage.get() || []
                 const body = getBody(params.body)
                 const id = uuid()
 
@@ -122,8 +119,7 @@ export function todoMocks(rawStorage: Storage) {
                     ...body,
                     id
                 }
-                todos.push(newTodo)
-                todoStorage.set(todos)
+                todoStorage.set([...todoStorage.get(), newTodo])
                 infoStorage.set([
                     ...infoStorage.get(),
                     {
@@ -131,6 +127,7 @@ export function todoMocks(rawStorage: Storage) {
                         description: 'desc#' + id
                     }
                 ])
+
                 return newTodo
             }
         }

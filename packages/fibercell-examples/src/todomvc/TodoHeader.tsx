@@ -78,17 +78,15 @@ export class TodoHeader extends React.Component<TodoHeaderProps> {
             props: {
                 id,
                 _: {
-                    todoRepository: {locked, toggleAll, activeTodoCount}
+                    todoRepository: {toggleAllDisabled, toggleAll, activeTodoCount}
                 }
             }
         } = this
 
-        const lock = locked()
-
         return <header id={id} className={css.header}>
             <input
                 id={`${id}-toggleAll`}
-                disabled={lock}
+                disabled={toggleAllDisabled}
                 type="checkbox"
                 onChange={toggleAll}
                 className={css.toggleAll}
@@ -98,7 +96,6 @@ export class TodoHeader extends React.Component<TodoHeaderProps> {
                 id={`${id}-input`}
                 className={css.newTodo}
                 placeholder="What needs to be done?"
-                disabled={lock}
                 onInput={todoToAdd.setTitle}
                 ref={todoToAdd.setRef}
                 value={todoToAdd.title}

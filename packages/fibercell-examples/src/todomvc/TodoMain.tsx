@@ -31,10 +31,10 @@ export interface TodoMainProps {
         } = this
 
         if (!filteredTodos.length) return null
-    
+
         return <ul
-            className={css.todoList}
             id={id}
+            className={css.todoList}
         >
             {filteredTodos.map(todo => <TodoItem
                 id={`${id}-todo(${todo.id})`}

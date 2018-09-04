@@ -1,170 +1,77 @@
-import {Task, TaskKey} from './Task'
+import {Task, ActionId} from './Task'
 import {cellDecorator} from '../cellDecorator'
+import { TaskQuery } from './TaskQuery'
+import { QueueRegistry, IQueue, QueueController } from './QueueRegistry'
+import { cellKeyDecorator } from '../cellKeyDecorator'
 
-export class QueueStatus {
-    size: number = 0
-    error: Error | void = undefined
-    errors: Error[] | void = undefined
+export class Queue implements IQueue {
+    protected static registry = new QueueRegistry()
 
-    get pending(): boolean {
-        return this.size > 0
+    static find(actionId: ActionId | ActionId[]): TaskQuery {
+        return Queue.registry.find(actionId)
     }
-}
 
-export enum QueueType {
-    PARALLEL = 'PARALLEL',
-    SINGLE = 'SINGLE',
-    SERIAL = 'SERIAL',
-}
+    @cellKeyDecorator static get(name: string): Queue {
+        const queue = new Queue(name, Queue.registry)
+        Queue.registry.add(queue)
+        return queue
+    }
 
-export type ActionMethod = (...args: any[]) => void
+    static actionIds: ActionId[] = []
 
-export class Queue {
-    protected tasks: Task[] | void = undefined
+    @cellDecorator protected tasks: Task[] = []
 
     constructor(
         public readonly displayName: string,
-        public readonly type: QueueType = QueueType.SERIAL,
-        protected readonly parentQueue?: Queue | void,
-    ) {
-        if (parentQueue) parentQueue.addSlave(this)
+        protected controller?: QueueController | void,
+    ) {}
+
+    toString() { return this.displayName }
+
+    find(actionId?: ActionId | ActionId[] | TaskQuery | void): TaskQuery {
+        const query = actionId instanceof TaskQuery
+            ? actionId
+            : new TaskQuery(actionId)
+
+        return query.add(this.tasks)
     }
 
-    protected slaves: Queue[] | void = undefined
-
-    addSlave(slave: Queue) {
-        if (!this.slaves) this.slaves = []
-        this.slaves.push(slave)
-        this.changed()
-    }
-
-    removeSlave(slave: Queue) {
-        if (this.slaves) {
-            this.slaves = this.slaves.filter(s => s !== slave)
-            if (this.slaves.length === 0) this.slaves = undefined
+    run(handler: () => void, ids: ActionId | ActionId[] = Queue.actionIds): void {
+        let actionId: ActionId 
+        let actionGroup: ActionId
+        if (ids instanceof Array) {
+            actionId = ids[0]
+            actionGroup = ids[1] || (Queue.actionIds === ids ? undefined : Queue.actionIds[0])
         }
-        this.changed()
-    }
 
-    // create<Method extends ActionMethod>(method: Method, t: Object = null): Method {
-    //     return ((...args: any[]) => {
-    //         const binded = method.bind(t, ...args)
-    //         setFunctionName(binded, method.name)
-    //         this.run(binded)
-    //     }) as Method
-    // }
-    protected taskMap: Map<TaskKey, Task> = new Map()
+        if (!actionId && !actionGroup) throw Error(
+            `${this.displayName}.run(${handler.name}): no any actionId provided: wrap in action decorator or provide second argument`
+        )
 
-    run(key: TaskKey, handler: () => void): Task {
-        if (!this.tasks) this.tasks = []
-        const tasks = this.tasks
-        if (tasks.length > 0 && this.type === QueueType.SINGLE) {
-            const lastTask = tasks.pop()
-            lastTask.destructor()
-        }
         const task = new Task(
-            `${this.displayName}.run(${handler.name})`,
+            actionId,
+            actionGroup,
             this,
             handler,
-            key,
-            this.taskMap
         )
-        this.taskMap.set(key, task)
-        tasks.push(task)
-        this.changed()
-
-        return task
+        this.tasks = [...this.tasks, task]
+        this.pull()
     }
 
-    locked(key: TaskKey): boolean {
-        this.status // refresh tasks or load status from cache
-        const task = this.taskMap.get(key)
-        return task ? task.locked() : false
+    pull() {
+        for (let task of this.tasks) task.status()
     }
 
-    protected changed() {
-        cellDecorator.retry(this.status)
-        this.status
-    }
-
-    @cellDecorator get status(): QueueStatus {
-        const tasks = this.tasks
-        const status = new QueueStatus()
-        const {slaves, type} = this
-        if (tasks) {
-            let hasCompleted = false
-            for (let task of tasks) {
-                const error = task.run()
-                if (error instanceof Error) {
-                    if (!status.error) status.error = error
-                    if (!status.errors) status.errors = []
-                    status.errors.push(error)
-                } if (error) {
-                    status.size++
-                } else {
-                    hasCompleted = true
-                }
-
-                if (type !== QueueType.PARALLEL) break
-            }
-            if (hasCompleted) {
-                this.tasks = tasks.filter(task => !task.completed)
-            }
-        }
-
-        if (slaves) {
-            for (let slave of slaves) {
-                status.size += slave.status.size
-                if (slave.status.error && !status.error) status.error = slave.status.error
-                if (slave.status.errors) {
-                    status.errors = [...status.errors || [], ...slave.status.errors]
-                }
-            }
-        }
-
-        return status
-    }
-
-    get size(): number {
-        return this.tasks ? this.tasks.length : 0
-    }
-
-    get pending(): boolean {
-        return this.status.pending
-    }
-
-    get error(): Error | void {
-        return this.status.error
-    }
-
-    retry(task?: Task) {
-        if (task) {
-            task.reset()
-        } else if (this.tasks) {
-            for (let current of this.tasks) current.reset()
-        }
-        this.changed()
-    }
-
-    abort(task?: Task) {
-        if (!this.tasks) return
-        if (task) {
-            this.tasks = this.tasks.filter(t => t !== task)
-            task.destructor()
-        } else {
-            for (let current of this.tasks) current.destructor()
-            this.tasks = []
-        }
-        this.changed()
+    remove(task: Task) {
+        this.tasks = this.tasks.filter(t => t !== task)
+        this.pull()
     }
 
     destructor() {
-        const {slaves, tasks} = this
-        if (this.parentQueue)
-           this.parentQueue.removeSlave(this)
-        if (slaves) for (let slave of slaves) slave.destructor()
-        if (tasks) for (let task of tasks) task.destructor()
-        this.slaves = undefined
+        if (!this.tasks) return
+        for (let task of this.tasks) task.destructor()
+        if (this.controller) this.controller.remove(this)
+        this.controller = undefined
         this.tasks = undefined
     }
 }

@@ -1,30 +1,28 @@
 import {Fiber, FiberController, FiberHost} from '../Fiber'
 import {FiberCache} from '../FiberCache'
-import {rollback, isPromise} from '../utils'
+import {rollback} from '../utils'
 
 export interface TaskController {
-    retry(task?: Task): void
-    abort(task?: Task): void
+    remove(task: Task): void
+    pull(): void
 }
 
-export type TaskKey = Object | string
+export type ActionId = Object | Function | symbol | string
 
 export class Task implements FiberController, FiberHost {
     protected error: Error | Promise<any> | void = undefined
-    completed: boolean = false
 
     constructor(
-        public readonly displayName: string,
-        protected readonly controller: TaskController,
-        protected readonly handler: () => void,
-        public key: TaskKey,
-        protected taskMap: Map<TaskKey, Task>
+        public readonly actionId: ActionId,
+        public readonly actionGroup: ActionId,
+        protected controller: TaskController | void,
+        protected readonly handler: (task: Task) => void
     ) {}
 
-    toString() { return this.displayName }
+    toString() { return String(this.actionId) }
 
-    run(): Error | Promise<any> | void {
-        if (this.completed) return
+    status(): Error | Promise<any> | void {
+        if (!this.controller) return
         if (this.error) return this.error
 
         const oldHost = Fiber.host
@@ -32,11 +30,9 @@ export class Task implements FiberController, FiberHost {
         const fibers = this.fibers || new FiberCache()
         const size = fibers.size
         try {
-            this.handler()
+            this.handler(this)
             if (size === fibers.size) {
-                this.completed = true
-                this.error = undefined
-                this.cleanFibers()
+                this.done()
             } else {
                 throw Promise.resolve()
             }
@@ -48,13 +44,6 @@ export class Task implements FiberController, FiberHost {
         return this.error
     }
 
-    locked(): boolean {
-        const {error} = this
-        if (error instanceof Error) throw error
-
-        return isPromise(error)
-    }
-
     protected fibers: FiberCache | void = undefined
 
     fiber<K, V>(key: K, async?: boolean): Fiber<V> {
@@ -62,30 +51,53 @@ export class Task implements FiberController, FiberHost {
         return this.fibers.fiber(key, this, async)
     }
 
-    protected cleanFibers() {
+    protected reset() {
         if (this.fibers) this.fibers.destructor()
         this.fibers = undefined
-    }
-
-    reset() {
         this.error = undefined
     }
 
-    retry(fiber?: Fiber<any>) {
-        if (!fiber) this.cleanFibers()
-        this.controller.retry(this)
+    retry() {
+        if (!this.controller) return
+        this.reset()
+        this.controller.pull()
     }
 
-    abort(fiber?: Fiber<any>) {
-        if (!fiber) this.cleanFibers()
-        this.controller.abort(this)
+    abort() {
+        this.destructor()
+    }
+
+    protected done() {
+        if (this.resolve) this.resolve(true)
+        this.reject = undefined
+        this.resolve = undefined
+        this.destructor()
+    }
+
+    protected resolve: ((v: boolean) => void) | void = undefined
+    protected reject: ((e: Error) => void) | void = undefined
+
+    wait(): boolean {
+        const fiber: Fiber<boolean> = Fiber.create(this)
+        return fiber.value() || fiber.value(
+            new Promise((
+                resolve: (v: boolean) => void,
+                reject: (e: Error) => void
+            ) => {
+                this.resolve = resolve
+                this.reject = reject
+            })
+        )
     }
 
     destructor() {
+        if (!this.controller) return
         rollback(this.error)
-        this.cleanFibers()
-        this.taskMap.delete(this.key)
-        this.taskMap = undefined
-        this.error = undefined
+        this.reset()
+        this.controller.remove(this)
+        this.controller = undefined
+        if (this.reject) this.reject(new Error(`${this} destructor called`))
+        this.resolve = undefined
+        this.reject = undefined
     }
 }

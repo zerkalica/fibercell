@@ -18,7 +18,7 @@ class TodoItemEdit {
 
     @action beginEdit() {
         const {todo} = this
-        if (todo.locked) return
+        if (todo.updateDisabled) return
         if (this.todoBeingEditedId) return
         this.todoBeingEditedId = todo.id
         this.editText = todo.title
@@ -47,7 +47,7 @@ class TodoItemEdit {
         this.todoBeingEditedId = null
     }
 
-    @action keyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    @action submitOrRestore(event: React.KeyboardEvent<HTMLInputElement>) {
         switch (event.which) {
             case ESCAPE_KEY:
                 this.editText = this.todo.title
@@ -114,8 +114,11 @@ class TodoItemTheme {
 
         const result = sheet({
             regular: {
+                position: 'relative',
                 fontSize: '24px',
                 borderBottom: '1px solid #ededed',
+                display: 'flex',
+
                 $nest: {
                     '&:last-child': {
                         borderBottom: 'none'
@@ -164,20 +167,18 @@ class TodoItemTheme {
                 '-webkit-appearance': 'none',
                 appearance: 'none',
                 opacity: 0,
-                $nest: {
-                    '&+label': {
-                        /*
-                            Firefox requires `#` to be escaped - https://bugzilla.mozilla.org/show_bug.cgi?id=922433
-                            IE and Edge requires *everything* to be escaped to render, so we do that instead of just the `#` - https://developer.microsoft.com/en-us/microsoft-edge/platform/issues/7157459/
-                        */
-                        backgroundImage: `url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%22-10%20-18%20100%20135%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2250%22%20fill%3D%22none%22%20stroke%3D%22%23ededed%22%20stroke-width%3D%223%22/%3E%3C/svg%3E')`,
-                        backgroundRepeat: 'no-repeat',
-                        backgroundPosition: 'center left'
-                    },
-    
-                    '&:checked+label': {
-                        backgroundImage: `url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%22-10%20-18%20100%20135%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2250%22%20fill%3D%22none%22%20stroke%3D%22%23bddad5%22%20stroke-width%3D%223%22/%3E%3Cpath%20fill%3D%22%235dc2af%22%20d%3D%22M72%2025L42%2071%2027%2056l-4%204%2020%2020%2034-52z%22/%3E%3C/svg%3E')`
-                    }
+                '& + label': {
+                    /*
+                        Firefox requires `#` to be escaped - https://bugzilla.mozilla.org/show_bug.cgi?id=922433
+                        IE and Edge requires *everything* to be escaped to render, so we do that instead of just the `#` - https://developer.microsoft.com/en-us/microsoft-edge/platform/issues/7157459/
+                    */
+                    backgroundImage: `url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%22-10%20-18%20100%20135%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2250%22%20fill%3D%22none%22%20stroke%3D%22%23ededed%22%20stroke-width%3D%223%22/%3E%3C/svg%3E')`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'center left'
+                },
+
+                '&:checked + label': {
+                    backgroundImage: `url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%22-10%20-18%20100%20135%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2250%22%20fill%3D%22none%22%20stroke%3D%22%23bddad5%22%20stroke-width%3D%223%22/%3E%3Cpath%20fill%3D%22%235dc2af%22%20d%3D%22M72%2025L42%2071%2027%2056l-4%204%2020%2020%2034-52z%22/%3E%3C/svg%3E')`
                 },
             },
 
@@ -241,11 +242,11 @@ export class TodoItem extends React.Component<TodoItemProps> {
                     id={`${id}-editing`}
                     ref={todoItemEdit.setEditInputRef}
                     className={css.edit}
-                    disabled={todo.locked}
+                    disabled={todo.updateDisabled}
                     value={todoItemEdit.editText}
                     onBlur={todoItemEdit.submit}
                     onInput={todoItemEdit.setText}
-                    onKeyDown={todoItemEdit.keyDown}
+                    onKeyDown={todoItemEdit.submitOrRestore}
                 />
             </li>
         }
@@ -258,13 +259,13 @@ export class TodoItem extends React.Component<TodoItemProps> {
                 id={`${id}-toggle`}
                 className={css.toggle}
                 type="checkbox"
-                disabled={todo.locked}
+                disabled={todo.updateDisabled}
                 checked={todo.completed}
                 onChange={todoItemEdit.toggle}
             />
             <label
                 id={`${id}-beginEdit`}
-                className={theme.label(todo.completed, todo.locked)}
+                className={theme.label(todo.completed, todo.updateDisabled)}
                 onDoubleClick={todoItemEdit.beginEdit}
             >
                 {todo.title}
@@ -272,7 +273,7 @@ export class TodoItem extends React.Component<TodoItemProps> {
             <button
                 id={`${id}-destroy`}
                 className={css.destroy + ' $destroy'}
-                disabled={todo.locked}
+                disabled={todo.removeDisabled}
                 onClick={todoItemEdit.remove}
             />
         </li>

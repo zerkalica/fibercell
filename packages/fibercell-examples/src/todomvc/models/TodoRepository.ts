@@ -1,6 +1,6 @@
-import {action, Queue, mem, Fiber} from 'fibercell'
+import {action, Queue, mem, ActionId} from 'fibercell'
 import {Todo, ITodoRepository} from './Todo'
-import {LocationStore} from '../../common'
+import {LocationStore, Deps, Omit} from '../../common'
 
 export enum TODO_FILTER {
     ALL = 'all',
@@ -10,25 +10,35 @@ export enum TODO_FILTER {
 
 export class TodoRepository implements ITodoRepository {
     constructor(
-        protected _: {
-            fetch: <V>(url: string, init?: RequestInit) => V
-            locationStore: LocationStore
-        },
-        public displayName: string
+        protected props: {
+            id: string
+            _: {
+                fetch: <V>(url: string, init?: RequestInit) => V
+                locationStore: LocationStore
+            } & Omit<Deps<typeof Todo>, 'todoRepository'>
+        }
     ) {}
 
-    toString() { return this.displayName }
+    protected _ = {
+        ...this.props._,
+        todoRepository: this as TodoRepository
+    }
+    
+
+    toString() { return this.props.id }
 
     @mem get todos(): Todo[] {
+        const {_} = this
         mem.suggest([
             new Todo({
                 title: 'mock-todo',
                 completed: true,
-            }, this)
+                _
+            })
         ])
 
         return (this._.fetch('/api/todos') as Partial<Todo>[])
-            .map(data => new Todo(data, this))
+            .map(data => new Todo({...data, _}))
     }
 
     set todos(data: Todo[]) {}
@@ -66,54 +76,59 @@ export class TodoRepository implements ITodoRepository {
         return this.todos.length - this.activeTodoCount
     }
 
-    private updateQueue = new Queue(`${this}.updateQueue`)
+    @mem protected get queue() { return new Queue(`${this}.queue`) }
 
-    @action locked(todo?: Todo): boolean {
-        return this.updateQueue.locked(todo ? todo.id : this)
+    actionDisabled(action?: ActionId | ActionId[] | void): boolean {
+        return this.queue.find(action).pending
     }
 
     @action add(todoData: Partial<Todo>) {
-        const todo = new Todo(todoData, this)
-        this.updateQueue.run(todo.id, () => {
-            const fiber: Fiber<Todo[]> = Fiber.create('add')
-            this.todos = fiber.value() || fiber.value([...this.todos, todo])
-            try {
-                const {id}: {id: string} = this._.fetch('/api/todo', {
-                    method: 'PUT',
-                    body: JSON.stringify(todo)
-                })
+        const todo = new Todo({...todoData, _: this._})
+        this.todos = [...this.todos, todo]
+        this.queue.run(() => {
+            const {id}: {id: string} = this._.fetch('/api/todo', {
+                method: 'PUT',
+                body: JSON.stringify(todo)
+            })
+            todo.id = id
+        }, todo.create)
+    }
 
-                this.todos = this.todos.map(t => t.id === todo.id ? t.copy({id}) : t)
-            } catch (error) {
-                mem.throwRollback(error, () => {
-                    this.todos = this.todos.filter(t => t.id !== todo.id)
-                })
-            }
-        })
+    updateDisabled(todo: Todo): boolean {
+        return this.actionDisabled([
+            todo.remove,
+            todo.create,
+            this.toggleAll,
+            this.completeAll,
+            this.clearCompleted,
+        ])
     }
 
     @action update(todo: Todo) {
-        this.todos = this.todos.map(t => t.id === todo.id ? todo : t)
-        this.updateQueue.run(todo.id, () => {
+        this.queue.find(todo.update).abort()
+        this.queue.run(() => {
             this._.fetch(`/api/todo/${todo.id}`, {
                 method: 'POST',
                 body: JSON.stringify(todo)
             })
         })
     }
-/*
-    @action update2(todo: Todo) {
-        const task = this.updateQueue.run(todo.id, (task) => {
-            this.todos = this.todos.map(t => t.id === todo.id ? todo.copy({task}) : t)
-            this._.fetch(`/api/todo/${todo.id}`, {
-                method: 'POST',
-                body: JSON.stringify(todo)
-            })
-        })
+
+    removeDisabled(todo: Todo): boolean {
+        return this.actionDisabled([
+            todo.remove,
+            todo.create
+        ])
     }
-*/
+
     @action remove(todo: Todo) {
-        this.updateQueue.run(todo.id, () => {
+        this.queue.find(todo.update).abort()
+        this.queue.run(() => {
+            this.queue.find([
+                this.toggleAll,
+                this.completeAll,
+                this.clearCompleted,
+            ]).wait()
             this._.fetch(`/api/todo/${todo.id}`, {method: 'DELETE'})
             this.todos = this.todos.filter(t => t.id !== todo.id)
         })
@@ -125,8 +140,17 @@ export class TodoRepository implements ITodoRepository {
         this.todos = this.todos.map(todo => todo.copy(patchMap.get(todo.id)))
     }
 
+    get toggleAllDisabled(): boolean {
+        return this.actionDisabled([
+            this.toggleAll,
+            this.completeAll,
+            this.clearCompleted,
+        ])
+    }
+
     @action toggleAll() {
-        this.updateQueue.run(this, () => {
+        this.queue.run(() => {
+            this.queue.find([this.add, this.update, this.remove]).wait()
             const todos = this.todos
             const completed = !!todos.find(todo => !todo.completed)
             const patches = todos.map(todo => ([todo.id, {completed}] as [string, Partial<Todo>]))
@@ -134,8 +158,13 @@ export class TodoRepository implements ITodoRepository {
         })
     }
 
+    get completeAllDisabled(): boolean {
+        return this.toggleAllDisabled
+    }
+
     @action completeAll() {
-        this.updateQueue.run(this, () => {
+        this.queue.run(() => {
+            this.queue.find([this.add, this.update, this.remove]).wait()
             const incomplete = this.todos.filter(t => !t.completed)
             const patches = incomplete.map(todo => (
                 [todo.id, {completed: true}] as [string, Partial<Todo>]
@@ -144,8 +173,13 @@ export class TodoRepository implements ITodoRepository {
         })
     }
 
+    get clearCompletedDisabled(): boolean {
+        return this.toggleAllDisabled
+    }
+
     @action clearCompleted() {
-        this.updateQueue.run(this, () => {
+        this.queue.run(() => {
+            this.queue.find([this.add, this.update, this.remove]).wait()
             const delIds = this.todos
                 .filter(todo => todo.completed)
                 .map(todo => todo.id)

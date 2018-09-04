@@ -119,7 +119,7 @@ export class TodoFooter extends React.Component<TodoFooterProps> {
                 id,
                 _: {
                     locationStore,
-                    todoRepository: {completedCount, activeTodoCount, filter, removing, clearCompleted},    
+                    todoRepository: {completedCount, activeTodoCount, filter, clearCompletedDisabled, clearCompleted},
                 }
             },
             todoFooterService
@@ -149,7 +149,7 @@ export class TodoFooter extends React.Component<TodoFooterProps> {
             {completedCount !== 0 && <button
                 id={`${id}-clear`}
                 className={css.clearCompleted}
-                disabled={removing}
+                disabled={clearCompletedDisabled}
                 onClick={clearCompleted}>
                 Clear completed
             </button>}

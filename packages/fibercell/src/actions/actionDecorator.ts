@@ -1,7 +1,9 @@
-import {Queue, ActionMethod} from './Queue'
+import {Queue} from './Queue'
 import {setFunctionName} from '../utils'
 
 type Class<Target> = Object
+
+type ActionMethod = (...args: any[]) => void
 
 export type ActionMethodDecorator<Target, Method extends ActionMethod> = (
     target: Class<Target>,
@@ -17,18 +19,26 @@ function actionMethodDecorator<Target, Method extends ActionMethod>(
     selector?: ((object: Target) => Queue) | void
 ): TypedPropertyDescriptor<Method> {
     const handler: Method = descr.value
-    function action(...args: any[]): void {
-        if (!selector) return handler.apply(this, args)
-        const binded = handler.bind(this, ...args)
-        setFunctionName(binded, name)
-        const queue = selector(this)
-
-        queue.run(`${name}${args.length > 0 ? `${String(args[0])}`: ''}`, binded)
+    const actionIds = Queue.actionIds
+    function action(id: Function, args: any[]): void {
+        actionIds.push(id)
+        try {
+            if (selector) {
+                const binded = handler.bind(this, ...args)
+                setFunctionName(binded, name)
+                const queue = selector(this)
+                queue.run(binded)
+            } else {
+                handler.apply(this, args)
+            }
+        } finally {
+            actionIds.pop()
+        }
     }
 
     let defining = false
     function get(): Method {
-        const value = action.bind(this) as Method
+        const value = ((...args: any[]) => action.call(this, value, args)) as Method
         setFunctionName(value, name)
         if (defining) return value
         defining = true
