@@ -1,8 +1,8 @@
 import * as React from 'react'
 import {TodoApp} from './todomvc'
-import {sheet, PageRepository, Deps, LocationStore, Omit, Sheet} from './common'
+import {Hello} from './hello'
+import {observer, sheet, PageRepository, Deps, LocationStore, Omit, Sheet} from './common'
 import { fiberize, mem } from 'fibercell'
-import { observer } from 'mobx-react'
 
 class AppTheme {
     @mem get css() {
@@ -17,6 +17,7 @@ class AppTheme {
             lineHeight: '20px',
             textDecoration: 'none',
             cursor: 'pointer',
+            color: 'black',
             $nest: {
                 '&:hover': {
                     textDecoration: 'underline'
@@ -68,18 +69,26 @@ export interface AppProps {
 }
 
 @observer
-export class App extends React.PureComponent<AppProps> {
+export class App extends React.Component<AppProps> {
     protected locationStore = new LocationStore(this.props._, this.props.id)
     protected appTheme = new AppTheme()
-    protected pageRepository = new PageRepository({
-        locationStore: this.locationStore,
-        pages: [
+    protected pageRepository = new PageRepository(
+        {
+            locationStore: this.locationStore,
+        },
+        [
             {
                 id: 'todomvc',
                 title: 'Todo MVC'
+            },
+            {
+                id: 'hello',
+                title: 'Hello'
             }
-        ]
-    })
+        ],
+        'page'
+    )
+
     protected _ = {
         ...this.props._,
         locationStore: this.locationStore,
@@ -109,13 +118,14 @@ export class App extends React.PureComponent<AppProps> {
                         className={page === item ? css.menuButtonActive : css.menuButton}
                         data-id={item.id}
                         onClick={setPageId}
-                    >{item.id}</a></li>
+                    >{item.title}</a></li>
                 )}
             </ul>
             <div id={`${id}-apps`} className={css.apps}>
                 <div id={`${id}-layout`} className={css.layout}>
                     <h1 id={`${id}-title`}>{page.title}</h1>
                     {page.id === 'todomvc' && <TodoApp id={pageId} _={_} />}
+                    {page.id === 'hello' && <Hello id={pageId} _={_} />}
                 </div>
             </div>
         </div>

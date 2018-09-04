@@ -1,7 +1,6 @@
-import {conform} from './conform'
 import {Fiber, FiberHost, FiberController} from './Fiber'
 import {FiberCache} from './FiberCache'
-import {hasDestructor, rollback, isPromise} from './utils'
+import {conform, hasDestructor, rollback, isPromise} from './utils'
 
 export enum CellStatus {
     OBSOLETE = 'OBSOLETE',
@@ -131,6 +130,8 @@ export class Cell<V> implements FiberController, FiberHost, ICell {
      * Invokes value handler, updates status and actual value.
      */
     actualize(): void {
+        if (this.status !== CellStatus.OBSOLETE) return
+
         const context = (this.constructor as typeof Cell)
         const host = Fiber.host
         Fiber.host = this
@@ -148,7 +149,6 @@ export class Cell<V> implements FiberController, FiberHost, ICell {
             const actual: V = conform(next, this.actual)
             if (
                 actual !== this.actual
-                || status === CellStatus.PENDING
                 || this.catched
             ) isChanged = true
 
@@ -179,7 +179,7 @@ export class Cell<V> implements FiberController, FiberHost, ICell {
 
         context.result = undefined
         Fiber.host = host
-        if (status !== this.status || isChanged) this.reportChanged()
+        if (isChanged) this.reportChanged()
     }
 
     destructor() {

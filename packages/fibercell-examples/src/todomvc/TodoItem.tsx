@@ -2,9 +2,8 @@
 
 import {action, mem} from 'fibercell'
 import {Todo} from './models'
-import {sheet, Sheet} from '../common'
+import {observer, sheet, Sheet, style} from '../common'
 import * as React from 'react'
-import {observer} from 'mobx-react'
 
 const ESCAPE_KEY = 27
 const ENTER_KEY = 13
@@ -12,14 +11,15 @@ const ENTER_KEY = 13
 class TodoItemEdit {
     @mem todoBeingEditedId: string | void = null
     @mem editText: string = ''
-    // @mem props: TodoItemProps
+
     constructor(
-        protected props: TodoItemProps
+        public todo: Todo
     ) {}
 
     @action beginEdit() {
+        const {todo} = this
+        if (todo.locked) return
         if (this.todoBeingEditedId) return
-        const {todo} = this.props
         this.todoBeingEditedId = todo.id
         this.editText = todo.title
     }
@@ -35,7 +35,7 @@ class TodoItemEdit {
     @action submit(event: React.FormEvent<HTMLInputElement>) {
         if (!this.todoBeingEditedId) return
         const title = this.editText.trim()
-        const {todo} = this.props
+        const {todo} = this
         if (title) {
             if (todo.title !== title) {
                 todo.update({title})
@@ -50,7 +50,7 @@ class TodoItemEdit {
     @action keyDown(event: React.KeyboardEvent<HTMLInputElement>) {
         switch (event.which) {
             case ESCAPE_KEY:
-                this.editText = this.props.todo.title
+                this.editText = this.todo.title
                 this.todoBeingEditedId = null
                 break
 
@@ -63,31 +63,46 @@ class TodoItemEdit {
     }
 
     @action toggle() {
-        this.props.todo.toggle()
+        this.todo.update({completed: !this.todo.completed})
         this.todoBeingEditedId = null
     }
 
     @action remove() {
-        this.props.todo.remove()
+        this.todo.remove()
         this.todoBeingEditedId = null
     }
 }
 
 class TodoItemTheme {
     @mem get css() {
-        const itemBase = {
-            position: 'relative',
-            fontSize: '24px',
-            borderBottom: '1px solid #ededed',
+
+        const destroy = style({
+            padding: 0,
+            border: 0,
+            background: 'none',
+            verticalAlign: 'baseline',
+            display: 'none',
+            position: 'absolute',
+            right: '10px',
+            top: 0,
+            bottom: 0,
+            width: '40px',
+            height: '40px',
+            fontSize: '30px',
+            margin: 'auto 0',
+            color: '#cc9a9a',
+            marginBottom: '11px',
+            transition: 'color 0.2s ease-out',
             $nest: {
-                '&:last-child': {
-                    borderBottom: 'none'
+                '&:hover': {
+                    color: '#af5b5e'
                 },
-                '&:hover $destroy': {
-                    display: 'block'
+
+                '&:after': {
+                    content: '\'×\''
                 }
             },
-        } as Sheet
+        })
 
         const viewLabelBase = {
             wordBreak: 'break-all',
@@ -97,9 +112,19 @@ class TodoItemTheme {
             transition: 'color 0.4s'
         } as Sheet
 
-        return sheet({
-            regular: itemBase,
-            completed: itemBase,
+        const result = sheet({
+            regular: {
+                fontSize: '24px',
+                borderBottom: '1px solid #ededed',
+                $nest: {
+                    '&:last-child': {
+                        borderBottom: 'none'
+                    },
+                    [`&:hover .${destroy}`]: {
+                        display: 'block'
+                    }
+                },
+            },
 
             editing: {
                 borderBottom: 'none',
@@ -168,35 +193,9 @@ class TodoItemTheme {
                 ...viewLabelBase,
                 color: '#d9d9d9'
             },
-
-            destroy: {
-                padding: 0,
-                border: 0,
-                background: 'none',
-                verticalAlign: 'baseline',
-                display: 'none',
-                position: 'absolute',
-                right: '10px',
-                top: 0,
-                bottom: 0,
-                width: '40px',
-                height: '40px',
-                fontSize: '30px',
-                margin: 'auto 0',
-                color: '#cc9a9a',
-                marginBottom: '11px',
-                transition: 'color 0.2s ease-out',
-                $nest: {
-                    '&:hover': {
-                        color: '#af5b5e'
-                    },
-    
-                    '&:after': {
-                        content: '\'×\''
-                    }
-                },
-            }
         })
+
+        return {...result, destroy}
     }
 
     label(isCompleted: boolean, isDisabled: boolean) {
@@ -206,14 +205,6 @@ class TodoItemTheme {
 
         return css.viewLabelRegular
     }
-
-    editable(isCompleted: boolean, isDirty: boolean) {
-        const css = this.css
-        if (isDirty) return css.viewLabelDisabled
-        if (isCompleted) return css.completed
-
-        return css.regular
-    }
 }
 
 export interface TodoItemProps {
@@ -222,9 +213,13 @@ export interface TodoItemProps {
 }
 
 @observer
-export class TodoItem extends React.PureComponent<TodoItemProps> {
-    protected todoItemEdit = new TodoItemEdit(this.props)
+export class TodoItem extends React.Component<TodoItemProps> {
+    protected todoItemEdit = new TodoItemEdit(this.props.todo)
     protected theme = new TodoItemTheme()
+
+    componentDidUpdate() {
+        this.todoItemEdit.todo = this.props.todo
+    }
 
     render() {
         const {
@@ -246,7 +241,7 @@ export class TodoItem extends React.PureComponent<TodoItemProps> {
                     id={`${id}-editing`}
                     ref={todoItemEdit.setEditInputRef}
                     className={css.edit}
-                    disabled={todo.saving}
+                    disabled={todo.locked}
                     value={todoItemEdit.editText}
                     onBlur={todoItemEdit.submit}
                     onInput={todoItemEdit.setText}
@@ -257,27 +252,27 @@ export class TodoItem extends React.PureComponent<TodoItemProps> {
 
         return <li
             id={id}
-            className={theme.editable(todo.completed, todo.dirty)}
+            className={css.regular}
         >
             <input
                 id={`${id}-toggle`}
                 className={css.toggle}
                 type="checkbox"
-                disabled={todo.saving}
+                disabled={todo.locked}
                 checked={todo.completed}
                 onChange={todoItemEdit.toggle}
             />
             <label
                 id={`${id}-beginEdit`}
-                className={theme.label(todo.completed, todo.saving)}
+                className={theme.label(todo.completed, todo.locked)}
                 onDoubleClick={todoItemEdit.beginEdit}
             >
                 {todo.title}
             </label>
             <button
                 id={`${id}-destroy`}
-                className={css.destroy}
-                disabled={todo.removing}
+                className={css.destroy + ' $destroy'}
+                disabled={todo.locked}
                 onClick={todoItemEdit.remove}
             />
         </li>

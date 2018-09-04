@@ -1,27 +1,24 @@
 import {mem, action} from 'fibercell'
 import {LocationStore} from './LocationStore'
 
-export interface Page {
+export interface BasePage {
     id: string
     title: string
 }
 
-export class PageRepository {
-    pages: Page[]
-
+export class PageRepository<Page extends BasePage> {
     constructor(
         protected _: {
-            locationStore: LocationStore,
-            pages: Page[]
-        }
-    ) {
-        this.pages = _.pages
-    }
+            locationStore: LocationStore
+        },
+        protected pages: Page[],
+        protected key: string = 'page'
+    ) {}
 
     @action setPageId(e: React.MouseEvent<HTMLAnchorElement>) {
         e.preventDefault()
         const id = (e.target as any).dataset.id
-        this.page = id
+        this.page = this.pages.find(page => page.id === id)
     }
 
     @action getPageUrl(page: string): string {
@@ -29,7 +26,10 @@ export class PageRepository {
     }
 
     @mem get page(): Page {
-        return this._.locationStore.value('page') || this.pages[0]
+        const pageId: string = this._.locationStore.value(this.key)
+        if (!pageId) return this.pages[0]
+
+        return this.pages.find(page => page.id === pageId)
     }
 
     set page(page: Page) {
@@ -37,6 +37,6 @@ export class PageRepository {
             `Provide data-id attribute for ${String(this)}.setPageId`
         )
 
-        this._.locationStore.value('page', page.id)
+        this._.locationStore.value(this.key, page.id)
     }
 }

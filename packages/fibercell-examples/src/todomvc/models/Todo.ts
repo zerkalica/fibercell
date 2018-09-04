@@ -1,29 +1,42 @@
 // @flow
-import {QueueStatus, Queue, mem, QueueType} from 'fibercell'
+import {action} from 'fibercell'
+import {uuid} from '../../common'
 
 export interface ITodoRepository {
     update(todo: Todo): void
     remove(todo: Todo): void
-    actions: Queue
+    locked(todo?: Todo): boolean
 }
 
-export class Todo {
-    id: string = `${Math.random()}.${Date.now()}.tmp`.substring(2)
-    dirty: boolean = true
-    completed: boolean = false
-    title: string = ''
+export interface ITodo {
+    id: string
+    title: string
+    completed: boolean
+    created: Date
+}
+
+export interface ITodoInfo {
+    id: string
+    description: string
+}
+
+export class Todo implements ITodo {
+    readonly id: string = uuid()
+    readonly completed: boolean = false
+    readonly title: string = ''
+    readonly created = new Date()
+    readonly removing: boolean
 
     protected store: ITodoRepository
 
-    protected actions: Queue
     constructor(todo: Partial<Todo>, store: ITodoRepository) {
+        Object.assign(this, todo)
+
         // Hide from JSON.stringify
         Object.defineProperties(this, {
-            store: {value: store},
-            dirty: {value: todo.dirty || false, configurable: true},
-            actions: {value: new Queue(QueueType.SERIAL, `Todo(${todo.id || this.id})`)}
+            store: {value: store, enumerable: false},
+            removing: {value: todo.removing || false, enumerable: false},
         })
-        Object.assign(this, todo)
     }
 
     copy(data?: Partial<Todo> | void): Todo {
@@ -32,27 +45,15 @@ export class Todo {
             : this
     }
 
-    protected get status(): QueueStatus {
-        return this.store.actions.status
+    get locked(): boolean {
+        return this.store.locked(this)
     }
 
-    get saving(): boolean {
-        return this.status.pending
-    }
-
-    get removing(): boolean {
-        return this.status.pending
-    }
-
-    @mem.action update(data?: Partial<Todo>) {
+    @action update(data?: Partial<Todo>) {
         this.store.update(this.copy(data))
     }
 
-    @mem.action remove() {
+    @action remove() {
         this.store.remove(this)
-    }
-
-    @mem.action toggle() {
-        this.update({completed: !this.completed})
     }
 }

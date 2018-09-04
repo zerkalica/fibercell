@@ -18,12 +18,12 @@ function actionMethodDecorator<Target, Method extends ActionMethod>(
 ): TypedPropertyDescriptor<Method> {
     const handler: Method = descr.value
     function action(...args: any[]): void {
-        if (!selector) return handler.apply(this, ...args)
+        if (!selector) return handler.apply(this, args)
         const binded = handler.bind(this, ...args)
         setFunctionName(binded, name)
         const queue = selector(this)
 
-        return queue.run(binded)
+        queue.run(`${name}${args.length > 0 ? `${String(args[0])}`: ''}`, binded)
     }
 
     let defining = false
@@ -33,7 +33,7 @@ function actionMethodDecorator<Target, Method extends ActionMethod>(
         if (defining) return value
         defining = true
         Object.defineProperty(this, name, {
-            configurable: true,
+            configurable: false,
             enumerable: false,
             value,
         })
@@ -48,16 +48,6 @@ function actionMethodDecorator<Target, Method extends ActionMethod>(
         get,
     }
 }
-
-// export function action<Target, Method extends ActionMethod>(
-//     selector?: ((t: Target) => Queue) | void
-// ): ActionMethodDecorator<Target, Method>
-
-// export function action<Target, Method extends ActionMethod>(
-//     proto: Class<Target>,
-//     name: string,
-//     descr: TypedPropertyDescriptor<Method>
-// ): TypedPropertyDescriptor<Method>
 
 export interface Action {
     <Target, Method extends ActionMethod>(

@@ -1,36 +1,44 @@
 import {Fiber, FiberController, FiberHost} from '../Fiber'
 import {FiberCache} from '../FiberCache'
-import {rollback} from '../utils'
+import {rollback, isPromise} from '../utils'
 
 export interface TaskController {
     retry(task?: Task): void
     abort(task?: Task): void
 }
 
+export type TaskKey = Object | string
+
 export class Task implements FiberController, FiberHost {
     protected error: Error | Promise<any> | void = undefined
+    completed: boolean = false
 
     constructor(
-        public readonly name: string,
+        public readonly displayName: string,
         protected readonly controller: TaskController,
-        protected readonly handler: () => void
+        protected readonly handler: () => void,
+        public key: TaskKey,
+        protected taskMap: Map<TaskKey, Task>
     ) {}
 
-    run(): void | Promise<any> | Error {
+    toString() { return this.displayName }
+
+    run(): Error | Promise<any> | void {
+        if (this.completed) return
         if (this.error) return this.error
 
         const oldHost = Fiber.host
         Fiber.host = this
-        const fiber: Fiber<boolean> = this.fiber(this)
         const fibers = this.fibers || new FiberCache()
         const size = fibers.size
         try {
-            this.error = undefined
-            fiber.value() || fiber.value(this.handler() || true)
-            if (size !== fibers.size) {
-                this.error = Promise.resolve()
+            this.handler()
+            if (size === fibers.size) {
+                this.completed = true
+                this.error = undefined
+                this.cleanFibers()
             } else {
-                this.obsolete()
+                throw Promise.resolve()
             }
         } catch (error) {
             this.error = error
@@ -40,6 +48,13 @@ export class Task implements FiberController, FiberHost {
         return this.error
     }
 
+    locked(): boolean {
+        const {error} = this
+        if (error instanceof Error) throw error
+
+        return isPromise(error)
+    }
+
     protected fibers: FiberCache | void = undefined
 
     fiber<K, V>(key: K, async?: boolean): Fiber<V> {
@@ -47,7 +62,7 @@ export class Task implements FiberController, FiberHost {
         return this.fibers.fiber(key, this, async)
     }
 
-    protected obsolete() {
+    protected cleanFibers() {
         if (this.fibers) this.fibers.destructor()
         this.fibers = undefined
     }
@@ -57,18 +72,20 @@ export class Task implements FiberController, FiberHost {
     }
 
     retry(fiber?: Fiber<any>) {
-        if (!fiber) this.obsolete()
+        if (!fiber) this.cleanFibers()
         this.controller.retry(this)
     }
 
     abort(fiber?: Fiber<any>) {
-        if (!fiber) this.obsolete()
+        if (!fiber) this.cleanFibers()
         this.controller.abort(this)
     }
 
     destructor() {
         rollback(this.error)
-        this.obsolete()
+        this.cleanFibers()
+        this.taskMap.delete(this.key)
+        this.taskMap = undefined
         this.error = undefined
     }
 }

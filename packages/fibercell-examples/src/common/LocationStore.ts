@@ -1,12 +1,6 @@
 import {mem} from 'fibercell'
 
 export class LocationStore {
-    // constructor(
-    //     protected location: Location,
-    //     protected history: History,
-    //     protected ns: string = 'app'
-    // ) {}
-
     constructor(
         protected _: {
             location: Location,
@@ -20,7 +14,9 @@ export class LocationStore {
     }
 
     protected paramsToString(params: URLSearchParams): string {
-        return params.toString()
+        const result = params.toString()
+
+        return result ? `?${result}` : ''
     }
 
     toUrl(newParams: {[id: string]: string} = {}, hash?: string): string {
@@ -36,20 +32,37 @@ export class LocationStore {
             }
         }
         const q = this.paramsToString(params)
-        return `${this._.location.origin}${q ? `?${q}` : ''}${hash ? `#${hash}` : ''}`
+
+        return `${this._.location.origin}${q}${hash ? `#${hash}` : ''}`
     }
 
     toString() {
         return this.toUrl()
     }
 
-    @mem.key value<V>(key: string, value?: V): V {
+    @mem.key(LocationStore.prototype.valueDestructor) value<V>(key: string, value?: V): V {
         const params = this.params()
         if (value === undefined) return params.get(key) as any
 
         params.set(key, String(value))
-        this._.history.pushState(null, this.ns, `?${this.paramsToString(params)}`)
+        this._.history.pushState(null, this.ns, this.paramsToString(params))
 
         return value
+    }
+
+    values(values?: Record<string, string>): ReadonlyMap<string, string> {
+        if (values) {
+            Object.keys(values).forEach(key => {
+                this.value(key, values[key])
+            })
+        }
+
+        return mem.key.map(this.value)
+    }
+
+    protected valueDestructor(key: string) {
+        const params = this.params()
+        params.delete(key)
+        this._.history.pushState(null, this.ns, this.paramsToString(params))
     }
 }

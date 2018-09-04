@@ -15,6 +15,7 @@
 		"baseUrl": "packages",
 		"paths": {
 			"fibercell": [ "fibercell/src" ],
+			"fibercell-examples": [ "fibercell-examples/src" ],
 			"fibercell-*": [ "fibercell-*/src" ]
 		}
 	},

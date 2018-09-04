@@ -23,9 +23,19 @@ export class MobxCell<V> extends Cell<V> {
         this.atom.reportObserved()
     }
 
-    reportChanged() {
+    private scheduled = false
+    private report: () => void = () => {
         this.atom.reportChanged()
+        this.scheduled = false
     }
+
+    reportChanged() {
+        if (this.scheduled) return
+        this.scheduled = true
+        this.report()
+        // requestAnimationFrame(this.report)
+    }
+
 
     actualize() {
         this.reaction.track(this.actualizer)

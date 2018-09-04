@@ -1,8 +1,6 @@
-import {Queue, mem, QueueType} from 'fibercell'
+import {action, Queue, mem, Fiber} from 'fibercell'
 import {Todo, ITodoRepository} from './Todo'
-import {LocationStore} from '../../common/LocationStore'
-
-const todoAction = mem.action((t: TodoRepository) => t.actions)
+import {LocationStore} from '../../common'
 
 export enum TODO_FILTER {
     ALL = 'all',
@@ -15,8 +13,11 @@ export class TodoRepository implements ITodoRepository {
         protected _: {
             fetch: <V>(url: string, init?: RequestInit) => V
             locationStore: LocationStore
-        }
+        },
+        public displayName: string
     ) {}
+
+    toString() { return this.displayName }
 
     @mem get todos(): Todo[] {
         mem.suggest([
@@ -26,7 +27,7 @@ export class TodoRepository implements ITodoRepository {
             }, this)
         ])
 
-        return (this._.fetch('/todos') as Partial<Todo>[])
+        return (this._.fetch('/api/todos') as Partial<Todo>[])
             .map(data => new Todo(data, this))
     }
 
@@ -65,110 +66,97 @@ export class TodoRepository implements ITodoRepository {
         return this.todos.length - this.activeTodoCount
     }
 
-    actions = new Queue(QueueType.SERIAL, 'TodoRepository')
+    private updateQueue = new Queue(`${this}.updateQueue`)
 
-    get adding(): boolean {
-        return this.actions.status.pending
+    @action locked(todo?: Todo): boolean {
+        return this.updateQueue.locked(todo ? todo.id : this)
     }
 
-    @todoAction add(todoData: Partial<Todo>) {
+    @action add(todoData: Partial<Todo>) {
         const todo = new Todo(todoData, this)
-        this.todos = [...this.todos, todo]
-        try {
-            const id: string = this._.fetch('/todos', {
-                method: 'PUT',
+        this.updateQueue.run(todo.id, () => {
+            const fiber: Fiber<Todo[]> = Fiber.create('add')
+            this.todos = fiber.value() || fiber.value([...this.todos, todo])
+            try {
+                const {id}: {id: string} = this._.fetch('/api/todo', {
+                    method: 'PUT',
+                    body: JSON.stringify(todo)
+                })
+
+                this.todos = this.todos.map(t => t.id === todo.id ? t.copy({id}) : t)
+            } catch (error) {
+                mem.throwRollback(error, () => {
+                    this.todos = this.todos.filter(t => t.id !== todo.id)
+                })
+            }
+        })
+    }
+
+    @action update(todo: Todo) {
+        this.todos = this.todos.map(t => t.id === todo.id ? todo : t)
+        this.updateQueue.run(todo.id, () => {
+            this._.fetch(`/api/todo/${todo.id}`, {
+                method: 'POST',
                 body: JSON.stringify(todo)
             })
-
-            this.todos = this.todos.map(t => t.id === todo.id ? t.copy({id, dirty: false}) : t)
-        } catch (error) {
-            mem.throwRollback(error, () => {
-                this.todos = this.todos.filter(t => t.id !== todo.id)
+        })
+    }
+/*
+    @action update2(todo: Todo) {
+        const task = this.updateQueue.run(todo.id, (task) => {
+            this.todos = this.todos.map(t => t.id === todo.id ? todo.copy({task}) : t)
+            this._.fetch(`/api/todo/${todo.id}`, {
+                method: 'POST',
+                body: JSON.stringify(todo)
             })
-        }
+        })
     }
-
-    get patching(): boolean {
-        return this.actions.status.pending
-    }
-
-    get updating(): boolean {
-        return this.actions.status.pending
-    }
-
-    get clearing(): boolean {
-        return this.actions.status.pending
+*/
+    @action remove(todo: Todo) {
+        this.updateQueue.run(todo.id, () => {
+            this._.fetch(`/api/todo/${todo.id}`, {method: 'DELETE'})
+            this.todos = this.todos.filter(t => t.id !== todo.id)
+        })
     }
 
     protected patch(patches: [string, Partial<Todo>][]) {
-        this._.fetch('/todos', {method: 'PUT', body: JSON.stringify(patches)})
+        this._.fetch('/api/todos', {method: 'PUT', body: JSON.stringify(patches)})
         const patchMap = new Map(patches)
         this.todos = this.todos.map(todo => todo.copy(patchMap.get(todo.id)))
     }
 
-    @todoAction toggleAll() {
-        const todos = this.todos
-        const completed = !!todos.find(todo => !todo.completed)
-        const patches = todos.map(todo => ([todo.id, {completed}] as [string, Partial<Todo>]))
-        this.patch(patches)
-    }
-
-    @todoAction completeAll() {
-        const incomplete = this.todos.filter(t => !t.completed)
-        const patches = incomplete.map(todo => (
-            [todo.id, {completed: true}] as [string, Partial<Todo>]
-        ))
-        this.patch(patches)
-    }
-
-    @todoAction clearCompleted() {
-        const delIds = this.todos
-            .filter(todo => todo.completed)
-            .map(todo => todo.id)
-
-        this._.fetch('/todos', {
-            method: 'DELETE',
-            body: JSON.stringify(delIds)
+    @action toggleAll() {
+        this.updateQueue.run(this, () => {
+            const todos = this.todos
+            const completed = !!todos.find(todo => !todo.completed)
+            const patches = todos.map(todo => ([todo.id, {completed}] as [string, Partial<Todo>]))
+            this.patch(patches)
         })
-
-        const delSet = new Set(delIds)
-        this.todos = this.todos.filter(todo => !delSet.has(todo.id))
     }
 
-    @todoAction update(todo: Todo) {
-        const oldTodo = this.todos.find(t => t.id === todo.id)
-        this.todos = this.todos.map(t => t.id === todo.id
-            ? todo.copy({dirty: true})
-            : t
-        )
-        try {
-            this._.fetch(`/todo/${todo.id}`, {
-                method: 'POST',
-                body: JSON.stringify(todo)
-            })
-        } catch (error) {
-            mem.throwRollback(error, () => {
-                this.todos = this.todos.map(t => t.id === oldTodo.id ? oldTodo : t)
-            })
-        }
-        this.todos = this.todos.map(t => t.id === todo.id
-            ? todo.copy({dirty: false})
-            : t
-        )
+    @action completeAll() {
+        this.updateQueue.run(this, () => {
+            const incomplete = this.todos.filter(t => !t.completed)
+            const patches = incomplete.map(todo => (
+                [todo.id, {completed: true}] as [string, Partial<Todo>]
+            ))
+            this.patch(patches)
+        })
     }
 
-    @todoAction remove(todo: Todo) {
-        this.todos = this.todos.map(t => t.id === todo.id
-            ? todo.copy({dirty: true})
-            : t
-        )
-        try {
-            this._.fetch(`/todo/${todo.id}`, {method: 'DELETE'})
-        } catch (error) {
-            mem.throwRollback(error, () => {
-                this.todos = this.todos.map(t => t.id === todo.id ? todo : t)
+    @action clearCompleted() {
+        this.updateQueue.run(this, () => {
+            const delIds = this.todos
+                .filter(todo => todo.completed)
+                .map(todo => todo.id)
+
+            this._.fetch('/api/todos', {
+                method: 'DELETE',
+                body: JSON.stringify(delIds)
             })
-        }
-        this.todos = this.todos.filter(t => t.id !== todo.id)    
+
+            const delSet = new Set(delIds)
+            this.todos = this.todos.filter(todo => !delSet.has(todo.id))
+        })
     }
 }

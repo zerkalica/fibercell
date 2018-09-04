@@ -1,5 +1,3 @@
-// @flow
-
 export const conformHandlers: Map<any, Function> = new Map()
 
 function arrayHandler<Target extends Array<any>, Source extends Array<any>>(target: Target, source: Source, stack: any[]) {

@@ -2,8 +2,7 @@
 import {mem, action} from 'fibercell'
 import * as React from 'react'
 import {TodoRepository, TODO_FILTER} from './models'
-import {observer} from 'mobx-react'
-import {Deps, sheet, LocationStore} from '../common'
+import {observer, Deps, sheet, LocationStore} from '../common'
 
 class TodoFooterService {
     links = [
@@ -43,7 +42,7 @@ class TodoFooterService {
             border: '1px solid transparent',
             borderRadius: '3px',
             $nest: {
-                '& :hover': {
+                '&:hover': {
                     borderColor: 'rgba(175, 47, 47, 0.1)'
                 }
             }
@@ -54,38 +53,17 @@ class TodoFooterService {
                 color: '#777',
                 padding: '10px 15px',
                 height: '20px',
-                textAlign: 'center',
+                display: 'flex',
                 borderTop: '1px solid #e6e6e6',
-                $nest: {
-                    '&:before': {
-                        content: '\'\'',
-                        position: 'absolute',
-                        right: '0',
-                        bottom: '0',
-                        left: '0',
-                        height: '50px',
-                        overflow: 'hidden',
-                        boxShadow: `0 1px 1px rgba(0, 0, 0, 0.2),
-                            0 8px 0 -3px #f6f6f6,
-                            0 9px 1px -3px rgba(0, 0, 0, 0.2),
-                            0 16px 0 -6px #f6f6f6,
-                            0 17px 2px -6px rgba(0, 0, 0, 0.2)`
-                    }
-                }
             },
 
             todoCount: {
-                float: 'left',
-                textAlign: 'left'
             },
 
             filters: {
                 margin: 0,
                 padding: 0,
-                listStyle: 'none',
-                position: 'absolute',
-                right: 0,
-                left: 0
+                listStyle: 'none'
             },
 
             filterItem: {
@@ -96,7 +74,7 @@ class TodoFooterService {
 
             linkSelected: {
                 ...linkBase,
-                borderColor: 'rgba(175, 47, 47, 0.2)'
+                borderColor: 'rgba(215, 47, 47, 0.2)'
             },
 
             clearCompleted: {
@@ -106,13 +84,11 @@ class TodoFooterService {
                 background: 'none',
                 fontSize: '100%',
                 verticalAlign: 'baseline',
-                float: 'right',
-                position: 'relative',
                 lineHeight: '20px',
                 textDecoration: 'none',
                 cursor: 'pointer',
                 $nest: {
-                    ':hover': {
+                    '&:hover': {
                         textDecoration: 'underline'
                     }
                 }
@@ -134,7 +110,7 @@ export interface TodoFooterProps {
 }
 
 @observer
-export class TodoFooter extends React.PureComponent<TodoFooterProps> {
+export class TodoFooter extends React.Component<TodoFooterProps> {
     protected todoFooterService = new TodoFooterService(this.props._)
 
     render() {
@@ -143,7 +119,7 @@ export class TodoFooter extends React.PureComponent<TodoFooterProps> {
                 id,
                 _: {
                     locationStore,
-                    todoRepository: {completedCount, activeTodoCount, filter, clearing, clearCompleted},    
+                    todoRepository: {completedCount, activeTodoCount, filter, removing, clearCompleted},    
                 }
             },
             todoFooterService
@@ -173,7 +149,7 @@ export class TodoFooter extends React.PureComponent<TodoFooterProps> {
             {completedCount !== 0 && <button
                 id={`${id}-clear`}
                 className={css.clearCompleted}
-                disabled={clearing}
+                disabled={removing}
                 onClick={clearCompleted}>
                 Clear completed
             </button>}

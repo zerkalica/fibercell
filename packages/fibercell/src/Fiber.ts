@@ -15,7 +15,7 @@ export interface FiberHost {
  * Caches value, while action / handler restarts.
  */
 export class Fiber<V> {
-    protected actual: V
+    protected actual: V = undefined
     protected catched: Error | Promise<V> | void = undefined
 
     static host: FiberHost = undefined
@@ -129,14 +129,14 @@ export class Fiber<V> {
         if (this.signal.aborted) return
         this.actual = actual
         this.catched = undefined
-        this.controller.retry()
+        this.controller.retry(this)
     }
 
     protected fail(error: Error): void {
         if (this.signal.aborted) return
         if (error[fiberKey] === undefined) error[fiberKey] = this
         this.catched = error
-        this.controller.retry()
+        this.controller.retry(this)
     }
 
     /**

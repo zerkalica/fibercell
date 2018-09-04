@@ -3,13 +3,11 @@ import {TodoHeader} from './TodoHeader'
 import {TodoMain} from './TodoMain'
 import {TodoFooter} from './TodoFooter'
 import {TodoRepository} from './models'
-import {sheet, Deps, Omit} from '../common'
-import {observer} from 'mobx-react'
+import {sheet, Deps, Omit, observer} from '../common'
 
 const css = sheet({
     todoapp: {
         background: '#fff',
-        position: 'relative',
         border: '1px solid #ededed',
         boxShadow: '0 2px 4px 0 rgba(0, 0, 0, 0.2), 0 25px 50px 0 rgba(0, 0, 0, 0.1)'
     }
@@ -26,10 +24,10 @@ export interface TodoAppProps {
 }
 
 @observer
-export class TodoApp extends React.PureComponent<TodoAppProps> {
+export class TodoApp extends React.Component<TodoAppProps> {
     protected _ = {
         ...this.props._,
-        todoRepository: new TodoRepository(this.props._)
+        todoRepository: new TodoRepository(this.props._, this.props.id + '-todoRepository')
     }
 
     render() {

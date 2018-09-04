@@ -1,13 +1,15 @@
-import {Cell} from './Cell'
+import {Cell, ICell} from './Cell'
 import {setFunctionName, getId} from './utils'
 
 export type CellProperty<V> = ((a: any, ...args: any[]) => any) extends V ? never : any
 
 export const cellDecoratorState: {
     returnCell: boolean,
+    returnMap: boolean,
     FiberCell: typeof Cell
 } = {
     returnCell: false,
+    returnMap: false,
     FiberCell: Cell,
 }
 
@@ -18,10 +20,34 @@ export function setupCellClass(NewCell: typeof Cell) {
 function valueGet<V>(): any {}
 function valueSet<V>(next?: V): any { return next }
 
-export function cellDecorator<V extends CellProperty<V>>(
+function cleanCell<V>(cells: WeakMap<Object, Cell<V>>, destructor?: void | (() => void)) {
+    cells.delete(this)
+    if (!destructor) return
+    try {
+        destructor.call(this)
+    } catch (error) {
+        console.warn(error)
+    }
+}
+
+export type CellPropertyDecorator<V extends CellProperty<V>> = (
+    (
+        proto: Object,
+        name: string | symbol,
+        descr?: (TypedPropertyDescriptor<V> & {initializer?: () => V}) | void,
+    ) => TypedPropertyDescriptor<V>
+) | (
+    (
+        proto: Object,
+        name: string | symbol
+    ) => void
+)
+
+function cellPropertyDecorator<V extends CellProperty<V>>(
     proto: Object,
     name: string | symbol,
-    descr?: (TypedPropertyDescriptor<V> & {initializer?: () => V}) | void
+    descr?: (TypedPropertyDescriptor<V> & {initializer?: () => V}) | void,
+    destructor?: void | (() => void)
 ): TypedPropertyDescriptor<V> {
     const displayName = getId(proto, name)
     const get: () => V = (descr && (descr.get || descr.initializer)) || valueGet
@@ -40,7 +66,7 @@ export function cellDecorator<V extends CellProperty<V>>(
             cell = new cf.FiberCell(
                 displayName,
                 handler.bind(this),
-                cells.delete.bind(cells, this)
+                cleanCell.bind(this, cells, destructor)
             )
             cells.set(this, cell)
         }
@@ -52,7 +78,10 @@ export function cellDecorator<V extends CellProperty<V>>(
          * const cell: Cell<Todos[]> = mem.cell(this.todos)
          * ```
          */
-        if (cf.returnCell) return cell as any
+        if (cf.returnCell) {
+            cf.returnCell = false
+            return cell as any
+        }
 
         return cell.value(next)
     }
@@ -67,51 +96,90 @@ export function cellDecorator<V extends CellProperty<V>>(
     }
 }
 
-export type CellKeyProperty<K, V> = (key: K, next?: V) => V
 
-function cleanMap<K, V>(key: K, cellMap: Map<K, V>, cells: WeakMap<Object, Map<K, V>>) {
-    cellMap.delete(key)
-    if (cellMap.size === 0) cells.delete(this)
+/**
+ * Public API cell facade
+ */
+export interface CellDecorator {
+    /**
+     * Observable, computed, pullable, pushable property decorator.
+     * 
+     * @example
+     * ```ts
+     * class TodoRepository {
+     *   @mem counter = 0 // like @mobx.observable
+     *   @mem get num(): number { return this.counter + 1} // computed
+     * 
+     *   @mem get text(): string { return fetchJson(...) } // pull text from server
+     *   @mem set text(next: string) {}
+     * }
+     * ```
+     */
+    <V extends CellProperty<V>>(
+        proto: Object,
+        name: string | symbol,
+        descr: TypedPropertyDescriptor<V>
+    ): TypedPropertyDescriptor<V>
+
+    <V extends CellProperty<V>>(destructor: () => void): CellPropertyDecorator<V>
+
+    (proto: Object, name: string | symbol): void
+
+    /**
+     * Check cell raw value. Used for restarting pending actions and for accessing cell status.
+     *
+     * @param v tracking property
+     */
+    state(v: any): ICell
+
+    /**
+     * Reset cell status and report changed.
+     *
+     * @example
+     * ```ts
+     * class TodoRepository {
+     *     @mem get todos(): Todo[] {
+     *         return fetchJson('/todos')
+     *     }
+     *     set todos(data: Todo[]) {}
+     *     reload() { mem.retry(this.todos) }
+     * }
+     * ```
+     */
+    retry<V>(v: V): void
 }
 
-export function cellKeyDecorator<K, V, Method extends CellKeyProperty<K, V>>(
-    proto: Object,
-    name: string | symbol,
-    descr: TypedPropertyDescriptor<Method>
-): TypedPropertyDescriptor<Method> {
-    const displayName = getId(proto, name)
+export const cellDecorator = ((...args: any[]) => {
+    const destructorOrProto = args[0]
+    const arg: string | void = args[1]
+    if (arg) return cellPropertyDecorator(destructorOrProto, arg, args[2])
 
-    const cells: WeakMap<Object, Map<K, Cell<V>>> = new WeakMap()
-    const cf = cellDecoratorState
-    const handler: Method = descr.value
+    return (
+        proto: Object,
+        name: string,
+        descr
+    ) => cellPropertyDecorator(proto, name, descr, destructorOrProto)
+}) as CellDecorator
 
-    function value(key: K, next?: V): V {
-        let cellMap = cells.get(this)
-        if (cellMap === undefined) {
-            cellMap = new Map()
-            cells.set(this, cellMap)
-        }
-        let cell = cellMap.get(key)
-
-        if (cell === undefined) {
-            cell = new cf.FiberCell(
-                displayName,
-                handler.bind(this, key),
-                cleanMap.bind(this, key, cellMap, cells)
-            )
-            cellMap.set(this, cell)
-        }
-
-        if (cf.returnCell) return cellMap as any
-
-        return cell.value(next)
-    }
-
-    setFunctionName(value, `${displayName}()`)
-
-    return {
-        enumerable: descr.enumerable,
-        configurable: descr.configurable,
-        value: value as Method,
-    }
+function callRetry<V>(cell: Cell<V>): void {
+    cell.retry()
 }
+
+function pass<V>(v: any): V {
+    return v
+}
+
+Object.defineProperties(cellDecorator, {
+    retry: {
+        get() {
+            cellDecoratorState.returnCell = true
+            return callRetry
+        }
+    },
+    state: {
+        get() {
+            cellDecoratorState.returnCell = true
+            return pass
+        }
+    }
+})

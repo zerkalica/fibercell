@@ -1,8 +1,7 @@
 import * as React from 'react'
 import {action, mem} from 'fibercell'
 import {TodoRepository} from './models'
-import {observer} from 'mobx-react'
-import { sheet, Deps } from '../common'
+import {observer, sheet, Deps } from '../common'
 
 class TodoToAdd {
     @mem title: string = ''
@@ -13,19 +12,15 @@ class TodoToAdd {
         }
     ) {}
 
-    get adding(): boolean {
-        return !!this._.todoRepository.adding
-    }
-
     @action.defer setRef(ref: HTMLInputElement | void) {
         if (ref) ref.focus()
     }
 
-    @action onInput({target}: React.ChangeEvent<HTMLInputElement>) {
+    @action setTitle({target}: React.ChangeEvent<HTMLInputElement>) {
         this.title = target.value
     }
 
-    @action onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    @action submit(e: React.KeyboardEvent<HTMLInputElement>) {
         if (e.keyCode === 13 && this.title) {
             this._.todoRepository.add({title: this.title})
             this.title = ''
@@ -34,15 +29,29 @@ class TodoToAdd {
 }
 
 const css = sheet({
+    header: {
+        alignItems: 'center',
+        display: 'flex',
+        justifyContent: 'flex-start'
+    },
+    toggleAll: {
+        outline: 'none',
+        width: '52px',
+        height: '34px',
+        display: 'block',
+        lineHeight: '1.4em',
+        textAlign: 'center',
+        cursor: 'pointer',
+        marginRight: '-52px',
+        marginLeft: 0,
+        zIndex: 100,
+        background: 'white',
+    },
     newTodo: {
-        position: 'relative',
-        margin: '0',
         width: '100%',
         fontSize: '24px',
-        fontFamily: 'inherit',
-        fontWeight: 'inherit',
         lineHeight: '1.4em',
-        color: 'inherit',
+        margin: 0,
         padding: '16px 16px 16px 60px',
         border: 'none',
         background: 'rgba(0, 0, 0, 0.003)',
@@ -54,28 +63,46 @@ const css = sheet({
 export interface TodoHeaderProps {
     id: string
     _: Deps<typeof TodoToAdd>
+    & {
+        todoRepository: TodoRepository
+    }
 }
 
 @observer
-export class TodoHeader extends React.PureComponent<TodoHeaderProps> {
+export class TodoHeader extends React.Component<TodoHeaderProps> {
     protected todoToAdd = new TodoToAdd(this.props._)
 
     render() {
         const {
             todoToAdd,
-            props: {id}
+            props: {
+                id,
+                _: {
+                    todoRepository: {locked, toggleAll, activeTodoCount}
+                }
+            }
         } = this
 
-        return <header id={id}>
+        const lock = locked()
+
+        return <header id={id} className={css.header}>
+            <input
+                id={`${id}-toggleAll`}
+                disabled={lock}
+                type="checkbox"
+                onChange={toggleAll}
+                className={css.toggleAll}
+                checked={activeTodoCount === 0}
+            />
             <input
                 id={`${id}-input`}
                 className={css.newTodo}
                 placeholder="What needs to be done?"
-                disabled={todoToAdd.adding}
-                onInput={todoToAdd.onInput}
+                disabled={lock}
+                onInput={todoToAdd.setTitle}
                 ref={todoToAdd.setRef}
                 value={todoToAdd.title}
-                onKeyDown={todoToAdd.onKeyDown}
+                onKeyDown={todoToAdd.submit}
             />
         </header>
     }

@@ -1,6 +1,6 @@
-import {stylesheet as sheet} from 'typestyle'
+import {style, stylesheet as sheet, keyframes} from 'typestyle'
 import {NestedCSSProperties} from 'typestyle/lib/types'
 
 export type Sheet = Record<string, NestedCSSProperties>
 
-export {sheet}
+export {sheet, style, keyframes}
