@@ -1,4 +1,4 @@
-import { toValueMap, setFunctionName, getId, hasDestructor } from './utils'
+import { toValueMap, setFunctionName, getId } from './utils'
 import { cellDecoratorState } from './cellDecorator'
 import { Cell } from './Cell'
 

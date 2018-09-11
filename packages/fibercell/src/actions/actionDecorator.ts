@@ -1,44 +1,50 @@
 import {Queue} from './Queue'
-import {setFunctionName} from '../utils'
+import {setFunctionName, defer} from '../utils'
+import {Cell} from '../Cell'
 
 type Class<Target> = Object
 
-type ActionMethod = (...args: any[]) => void
+type ActionMethod = (...args: any[]) => any
 
 export type ActionMethodDecorator<Target, Method extends ActionMethod> = (
     target: Class<Target>,
     propertyKey: string | symbol,
     descriptor: TypedPropertyDescriptor<Method>,
-    selector?: ((object: Target) => Queue) | void
 ) => TypedPropertyDescriptor<Method>
 
-function actionMethodDecorator<Target, Method extends ActionMethod>(
+function actionDecorator<Target, Method extends ActionMethod>(
     proto: Class<Target>,
     name: string,
     descr: TypedPropertyDescriptor<Method>,
-    selector?: ((object: Target) => Queue) | void
+    isDefer?: boolean
 ): TypedPropertyDescriptor<Method> {
     const handler: Method = descr.value
     const actionIds = Queue.actionIds
-    function action(id: Function, args: any[]): void {
+    function action(id: Function, args: any[], cell: Cell<any> | void): void {
         actionIds.push(id)
+        let result
         try {
-            if (selector) {
-                const binded = handler.bind(this, ...args)
-                setFunctionName(binded, name)
-                const queue = selector(this)
-                queue.run(binded)
+            result = handler.apply(this, args)
+        } catch (error) {
+            if (cell) {
+                cell.setError(error)
             } else {
-                handler.apply(this, args)
+                console.error(error)
             }
-        } finally {
-            actionIds.pop()
         }
+        actionIds.pop()
+
+        return result
     }
 
     let defining = false
     function get(): Method {
-        const value = ((...args: any[]) => action.call(this, value, args)) as Method
+        const value = ((...args: any[]) =>
+            isDefer
+                ? defer.then(action.bind(this, value, args, Cell.current))
+                : action.call(this, value, args, Cell.current)
+        ) as Method
+
         setFunctionName(value, name)
         if (defining) return value
         defining = true
@@ -63,22 +69,12 @@ export interface Action {
     <Target, Method extends ActionMethod>(
         proto: Class<Target>,
         name: string,
-        descr: TypedPropertyDescriptor<Method>
+        descr: TypedPropertyDescriptor<Method>,
+        defer?: boolean
     ): TypedPropertyDescriptor<Method>
-    <Target, Method extends ActionMethod>(
-        selector?: ((t: Target) => Queue) | void
-    ): ActionMethodDecorator<Target, Method>
-    defer: Action
+    defer: typeof actionDecorator
 }
 
-export const action = (<Target, Method extends ActionMethod>(...args: any[]) => {
-    const selectorOrProto = args[0]
-    const arg: string | void = args[1]
-    if (arg) return actionMethodDecorator(selectorOrProto, arg, args[2])
+export const action = actionDecorator as Action
 
-    return (
-        proto: Object,
-        name: string,
-        descr: TypedPropertyDescriptor<Method>
-    ) => actionMethodDecorator(proto, name, descr, selectorOrProto)
-}) as Action
+action.defer = (proto, name, descr) => actionDecorator(proto, name, descr, true)

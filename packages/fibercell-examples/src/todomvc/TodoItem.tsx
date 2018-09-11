@@ -1,5 +1,3 @@
-// @flow
-
 import {action, mem} from 'fibercell'
 import {Todo} from './models'
 import {observer, sheet, Sheet, style} from '../common'
@@ -32,7 +30,7 @@ class TodoItemEdit {
         if (el) el.focus()
     }
 
-    @action submit(event: React.FormEvent<HTMLInputElement>) {
+    @action submit() {
         if (!this.todoBeingEditedId) return
         const title = this.editText.trim()
         const {todo} = this
@@ -55,7 +53,7 @@ class TodoItemEdit {
                 break
 
             case ENTER_KEY:
-                this.submit(event)
+                this.submit()
                 break
 
             default: break
@@ -149,7 +147,6 @@ class TodoItemTheme {
                 fontFamily: 'inherit',
                 fontWeight: 'inherit',
                 lineHeight: '1.4em',
-                width: '406px',
                 padding: '12px 16px',
                 margin: '0 0 0 43px'
             },
@@ -251,6 +248,8 @@ export class TodoItem extends React.Component<TodoItemProps> {
             </li>
         }
 
+        const {updating} = todo
+
         return <li
             id={id}
             className={css.regular}
@@ -268,7 +267,9 @@ export class TodoItem extends React.Component<TodoItemProps> {
                 className={theme.label(todo.completed, todo.updateDisabled)}
                 onDoubleClick={todoItemEdit.beginEdit}
             >
+                {updating && '['}
                 {todo.title}
+                {updating && ']'}
             </label>
             <button
                 id={`${id}-destroy`}

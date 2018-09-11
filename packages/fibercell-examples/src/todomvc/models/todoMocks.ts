@@ -1,5 +1,5 @@
 import {uuid, ModelStorage} from '../../common'
-import {ITodo, ITodoInfo} from './Todo'
+import {ITodo} from './Todo'
 
 function getBody(body: (string | Object) | void): any {
     return typeof body === 'string'
@@ -37,7 +37,6 @@ export function todoMocks(rawStorage: Storage) {
         }
     ]
     const todoStorage = new ModelStorage(rawStorage, 'TodoMocks.todos', defaultTodos)
-    const infoStorage = new ModelStorage(rawStorage, 'TodoMocks.infoStorage', [] as ITodoInfo[])
 
     return [
         {
@@ -45,18 +44,6 @@ export function todoMocks(rawStorage: Storage) {
             matcher: new RegExp('/api/todos'),
             response(url: string, params: RequestInit) {
                 return todoStorage.get().sort(sortByDate)
-            }
-        },
-        {
-            method: 'GET',
-            matcher: new RegExp('/api/todo/(.*)/info'),
-            response(url: string, params: RequestInit, id: string) {
-                const i = infoStorage.get().find(inf => inf.id === id)
-
-                return {
-                    id,
-                    description: i ? i.description : 'desc'
-                } as ITodoInfo
             }
         },
         {
@@ -117,17 +104,10 @@ export function todoMocks(rawStorage: Storage) {
 
                 const newTodo: ITodo = {
                     ...body,
-                    id
+                    id,
+                    created: String(new Date())
                 }
                 todoStorage.set([...todoStorage.get(), newTodo])
-                infoStorage.set([
-                    ...infoStorage.get(),
-                    {
-                        id,
-                        description: 'desc#' + id
-                    }
-                ])
-
                 return newTodo
             }
         }

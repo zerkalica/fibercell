@@ -22,7 +22,7 @@ class TodoToAdd {
 
     @action submit(e: React.KeyboardEvent<HTMLInputElement>) {
         if (e.keyCode === 13 && this.title) {
-            this._.todoRepository.add({title: this.title})
+            this._.todoRepository.create({title: this.title})
             this.title = ''
         }
     }

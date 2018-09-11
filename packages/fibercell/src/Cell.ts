@@ -1,5 +1,5 @@
-import {Fiber, FiberHost, FiberController} from './Fiber'
-import {FiberCache} from './FiberCache'
+import {Fiber, FiberHost, FiberController} from './fibers/Fiber'
+import {FiberCache} from './fibers/FiberCache'
 import {conform, hasDestructor, rollback, isPromise} from './utils'
 
 export enum CellStatus {
@@ -139,7 +139,7 @@ export class Cell<V> implements FiberController, FiberHost, ICell {
 
         let isChanged = false
 
-        const {status, suggested} = this
+        const {suggested} = this
         try {
             let next: V = this.handler(suggested)
 
@@ -161,25 +161,33 @@ export class Cell<V> implements FiberController, FiberHost, ICell {
             if (hasDestructor(actual) && !owners.has(actual)) owners.set(actual, this)
         } catch (error) {
             if (this.catched !== error) isChanged = true
-            this.catched = error
-            if (isPromise(error)) {
-                // Suggest mock value, while loading on first run
-                if (context.result !== undefined) {
-                    if (this.actual === undefined) this.actual = context.result
-                    this.status = CellStatus.MOCK
-                } else {
-                    this.status = CellStatus.PENDING
-                }
-            } else {
-                if (this.fibers) this.fibers.destructor()
-                this.fibers = undefined
-                this.status = CellStatus.CHECKED
-            }
+            this.setError(error, true)
         }
 
         context.result = undefined
         Fiber.host = host
         if (isChanged) this.reportChanged()
+    }
+
+    setError(error: Error | Promise<any>, noReport?: boolean) {
+        this.catched = error
+        if (isPromise(error)) {
+            const context = (this.constructor as typeof Cell)
+            // Suggest mock value, while loading on first run
+            this.catched = error
+            if (context.result !== undefined) {
+                if (this.actual === undefined) this.actual = context.result
+                this.status = CellStatus.MOCK
+            } else {
+                this.status = CellStatus.PENDING
+            }
+            return
+        }
+
+        if (this.fibers) this.fibers.destructor()
+        this.fibers = undefined
+        this.status = CellStatus.CHECKED
+        if (!noReport) this.reportChanged()
     }
 
     destructor() {

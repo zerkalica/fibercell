@@ -6,18 +6,33 @@ export interface BasePage {
     title: string
 }
 
-export class PageRepository<Page extends BasePage> {
-    constructor(
-        protected _: {
-            locationStore: LocationStore
-        },
-        protected pages: Page[],
-        protected key: string = 'page'
-    ) {}
+export interface SetPageIdEvent {
+    preventDefault(): void
+    target: any
+}
 
-    @action setPageId(e: React.MouseEvent<HTMLAnchorElement>) {
+export interface PageRepositoryContext {
+    locationStore: LocationStore
+}
+
+export class PageRepository<Page extends BasePage> {
+    protected readonly pages: Page[]
+    protected readonly key: string
+    protected readonly _: PageRepositoryContext
+
+    constructor(opts: {
+        pages: Page[]
+        key: string
+        _: PageRepositoryContext
+    }) {
+        this.pages = opts.pages
+        this.key = opts.key
+        this._ = opts._
+    }
+
+    @action setPageId(e: SetPageIdEvent) {
         e.preventDefault()
-        const id = (e.target as any).dataset.id
+        const id = e.target.dataset.id
         this.page = this.pages.find(page => page.id === id)
     }
 

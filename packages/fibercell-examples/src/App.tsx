@@ -70,13 +70,15 @@ export interface AppProps {
 
 @observer
 export class App extends React.Component<AppProps> {
-    protected locationStore = new LocationStore(this.props._, this.props.id)
-    protected appTheme = new AppTheme()
-    protected pageRepository = new PageRepository(
-        {
-            locationStore: this.locationStore,
-        },
-        [
+    protected _ = {
+        ...this.props._,
+        locationStore: new LocationStore(this.props._, this.props.id),
+        fetch: fiberize(this.props._.fetchFn, r => r.json())
+    }
+
+    protected pageRepository = new PageRepository({
+        _: this._,
+        pages: [
             {
                 id: 'todomvc',
                 title: 'Todo MVC'
@@ -86,14 +88,10 @@ export class App extends React.Component<AppProps> {
                 title: 'Hello'
             }
         ],
-        'page'
-    )
+        key: 'page'
+    })
 
-    protected _ = {
-        ...this.props._,
-        locationStore: this.locationStore,
-        fetch: fiberize(this.props._.fetchFn, r => r.json())
-    }
+    protected appTheme = new AppTheme()
 
     render() {
         const {

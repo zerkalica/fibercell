@@ -18,4 +18,3 @@ export function setFunctionName<F extends Function>(fn: F, name: string): F {
 export function hasDestructor(obj: any): obj is {destructor(): void} {
     return obj && typeof obj === 'object' && typeof unproxifyError(obj).destructor === 'function'
 }
-

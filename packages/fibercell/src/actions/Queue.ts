@@ -1,50 +1,46 @@
 import {Task, ActionId} from './Task'
-import {cellDecorator} from '../cellDecorator'
 import { TaskQuery } from './TaskQuery'
-import { QueueRegistry, IQueue, QueueController } from './QueueRegistry'
-import { cellKeyDecorator } from '../cellKeyDecorator'
+import {cellDecorator as cell} from '../cellDecorator'
 
-export class Queue implements IQueue {
-    protected static registry = new QueueRegistry()
-
-    static find(actionId: ActionId | ActionId[]): TaskQuery {
-        return Queue.registry.find(actionId)
-    }
-
-    @cellKeyDecorator static get(name: string): Queue {
-        const queue = new Queue(name, Queue.registry)
-        Queue.registry.add(queue)
-        return queue
-    }
-
+export class Queue {
     static actionIds: ActionId[] = []
 
-    @cellDecorator protected tasks: Task[] = []
+    @cell protected status: Promise<void> | Error | void
+
+    protected tasks: Task[] | void = []
 
     constructor(
         public readonly displayName: string,
-        protected controller?: QueueController | void,
+        protected parallel: boolean = true
     ) {}
 
     toString() { return this.displayName }
 
-    find(actionId?: ActionId | ActionId[] | TaskQuery | void): TaskQuery {
-        const query = actionId instanceof TaskQuery
-            ? actionId
-            : new TaskQuery(actionId)
-
-        return query.add(this.tasks)
+    find(actionId?: ActionId | ActionId[] | void, throwPromise?: boolean): TaskQuery {
+        const query = new TaskQuery(actionId, throwPromise)
+        this.status
+        if (this.tasks) query.add(this.tasks)
+        return query
     }
 
-    run(handler: () => void, ids: ActionId | ActionId[] = Queue.actionIds): void {
-        let actionId: ActionId 
-        let actionGroup: ActionId
+    run(handler: () => void, ids?: ActionId | ActionId[] | void): void {
+        if (!this.tasks) return
+        let actionId: ActionId | void
+        let actionGroup: ActionId | void
         if (ids instanceof Array) {
             actionId = ids[0]
-            actionGroup = ids[1] || (Queue.actionIds === ids ? undefined : Queue.actionIds[0])
+            actionGroup = ids[1]
+        } else {
+            actionId = ids
         }
 
-        if (!actionId && !actionGroup) throw Error(
+        const {actionIds} = Queue
+        if (!actionGroup && actionIds.length > 0)
+            actionGroup = actionIds[actionIds.length - 1]
+        if (!actionId && actionIds.length > 0)
+            actionId = actionIds[actionIds.length - 2] || actionGroup
+
+        if (!actionId) throw Error(
             `${this.displayName}.run(${handler.name}): no any actionId provided: wrap in action decorator or provide second argument`
         )
 
@@ -54,24 +50,33 @@ export class Queue implements IQueue {
             this,
             handler,
         )
-        this.tasks = [...this.tasks, task]
+        this.tasks.push(task)
         this.pull()
     }
 
     pull() {
-        for (let task of this.tasks) task.status()
+        const {tasks, parallel} = this
+        if (!tasks) return
+        let status: Error | Promise<void> | void = null
+        let oldStatus = this.status
+        for (let task of tasks) {
+            const value = task.value()
+            if (value && oldStatus !== value) status = value
+            if (!parallel) break
+        }
+        this.status = status
     }
 
     remove(task: Task) {
+        if (!this.tasks) return
         this.tasks = this.tasks.filter(t => t !== task)
         this.pull()
     }
 
     destructor() {
-        if (!this.tasks) return
-        for (let task of this.tasks) task.destructor()
-        if (this.controller) this.controller.remove(this)
-        this.controller = undefined
+        const {tasks} = this
+        if (!tasks) return
         this.tasks = undefined
+        for (let task of tasks) task.destructor()
     }
 }

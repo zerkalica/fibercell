@@ -1,11 +1,11 @@
-// @flow
-import {mem, action} from 'fibercell'
-import {uuid} from '../../common'
+import {action} from 'fibercell'
 
 export interface ITodoRepository {
+    updating(todo: Todo): boolean
+    updateDisabled(todo: Todo): boolean
     update(todo: Todo): void
+    removeDisabled(todo: Todo): boolean
     remove(todo: Todo): void
-    actionDisabled(action: Function | symbol): boolean
 }
 
 export interface ITodo {
@@ -25,10 +25,10 @@ export interface TodoContext {
 }
 
 export class Todo implements ITodo {
-    @mem id: string = uuid()
-    readonly completed: boolean = false
-    readonly title: string = ''
-    readonly created = new Date()
+    readonly id: string
+    readonly completed: boolean
+    readonly title: string
+    readonly created: Date
 
     protected _: TodoContext
 
@@ -42,17 +42,21 @@ export class Todo implements ITodo {
     }
 
     toString() {
-        return `${this._.todoRepository}.${this.id}`
+        return `${this._.todoRepository}.todo(${this.id})`
     }
 
     copy(data?: Partial<Todo> | void): Todo {
         return data
-            ? new Todo({...this as Partial<Todo>, ...data, _: this._})
+            ? new Todo({...this as Partial<Todo>, ...data, create: this.create, _: this._})
             : this
     }
 
     get updateDisabled() {
-        return this._.todoRepository.actionDisabled(this.remove)
+        return this._.todoRepository.updateDisabled(this)
+    }
+
+    get updating() {
+        return this._.todoRepository.updating(this)
     }
 
     create = Symbol('create')
@@ -62,7 +66,7 @@ export class Todo implements ITodo {
     }
 
     get removeDisabled() {
-        return this._.todoRepository.actionDisabled(this.create)
+        return this._.todoRepository.removeDisabled(this)
     }
 
     @action remove() {

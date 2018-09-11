@@ -1,5 +1,5 @@
-import {Fiber, FiberController, FiberHost} from '../Fiber'
-import {FiberCache} from '../FiberCache'
+import {Fiber, FiberController, FiberHost} from '../fibers/Fiber'
+import {FiberCache} from '../fibers/FiberCache'
 import {rollback} from '../utils'
 
 export interface TaskController {
@@ -8,20 +8,21 @@ export interface TaskController {
 }
 
 export type ActionId = Object | Function | symbol | string
+const pending = Promise.resolve()
 
 export class Task implements FiberController, FiberHost {
     protected error: Error | Promise<any> | void = undefined
 
     constructor(
-        public readonly actionId: ActionId,
-        public readonly actionGroup: ActionId,
+        public actionId: ActionId,
+        public actionGroup: ActionId | void,
         protected controller: TaskController | void,
-        protected readonly handler: (task: Task) => void
+        protected handler: (task: Task) => void
     ) {}
 
     toString() { return String(this.actionId) }
 
-    status(): Error | Promise<any> | void {
+    value(): Error | Promise<any> | void {
         if (!this.controller) return
         if (this.error) return this.error
 
@@ -30,11 +31,13 @@ export class Task implements FiberController, FiberHost {
         const fibers = this.fibers || new FiberCache()
         const size = fibers.size
         try {
+            this.error = pending
             this.handler(this)
             if (size === fibers.size) {
-                this.done()
-            } else {
-                throw Promise.resolve()
+                if (this.resolve) this.resolve()
+                this.reject = undefined
+                this.resolve = undefined
+                this.destructor()
             }
         } catch (error) {
             this.error = error
@@ -59,7 +62,7 @@ export class Task implements FiberController, FiberHost {
 
     retry() {
         if (!this.controller) return
-        this.reset()
+        this.error = undefined
         this.controller.pull()
     }
 
@@ -67,23 +70,14 @@ export class Task implements FiberController, FiberHost {
         this.destructor()
     }
 
-    protected done() {
-        if (this.resolve) this.resolve(true)
-        this.reject = undefined
-        this.resolve = undefined
-        this.destructor()
-    }
-
-    protected resolve: ((v: boolean) => void) | void = undefined
+    protected resolve: (() => void) | void = undefined
     protected reject: ((e: Error) => void) | void = undefined
 
-    wait(): boolean {
-        const fiber: Fiber<boolean> = Fiber.create(this)
+    wait() {
+        if (!this.controller) return
+        const fiber: Fiber<void> = Fiber.create(this)
         return fiber.value() || fiber.value(
-            new Promise((
-                resolve: (v: boolean) => void,
-                reject: (e: Error) => void
-            ) => {
+            new Promise((resolve: () => void, reject: (e: Error) => void) => {
                 this.resolve = resolve
                 this.reject = reject
             })
@@ -91,13 +85,18 @@ export class Task implements FiberController, FiberHost {
     }
 
     destructor() {
-        if (!this.controller) return
-        rollback(this.error)
-        this.reset()
-        this.controller.remove(this)
+        const {error, controller} = this
+        if (!controller) return
         this.controller = undefined
+        this.error = undefined
+        if (error) rollback(error)
+        this.reset()
         if (this.reject) this.reject(new Error(`${this} destructor called`))
         this.resolve = undefined
         this.reject = undefined
+        this.actionId = undefined
+        this.actionGroup = undefined
+        this.handler = undefined
+        controller.remove(this)
     }
 }

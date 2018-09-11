@@ -1,4 +1,4 @@
-import {Cell} from '../Cell'
+import {Cell} from './Cell'
 
 function cellToValue<K, V>(
     callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void,

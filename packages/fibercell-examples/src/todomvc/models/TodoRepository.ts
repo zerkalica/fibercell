@@ -23,11 +23,10 @@ export class TodoRepository implements ITodoRepository {
         ...this.props._,
         todoRepository: this as TodoRepository
     }
-    
 
     toString() { return this.props.id }
 
-    @mem get todos(): Todo[] {
+    @mem protected get todos(): Todo[] {
         const {_} = this
         mem.suggest([
             new Todo({
@@ -37,11 +36,13 @@ export class TodoRepository implements ITodoRepository {
             })
         ])
 
-        return (this._.fetch('/api/todos') as Partial<Todo>[])
-            .map(data => new Todo({...data, _}))
+        const todos = (this._.fetch('/api/todos') as Partial<Todo>[])
+            .map(data => new Todo({...data, created: new Date(data.created), _}))
+
+        return todos
     }
 
-    set todos(data: Todo[]) {}
+    protected set todos(data: Todo[]) {}
 
     reload() { mem.retry(this.todos) }
 
@@ -76,21 +77,29 @@ export class TodoRepository implements ITodoRepository {
         return this.todos.length - this.activeTodoCount
     }
 
-    @mem protected get queue() { return new Queue(`${this}.queue`) }
-
-    actionDisabled(action?: ActionId | ActionId[] | void): boolean {
-        return this.queue.find(action).pending
+    @mem protected get actions() {
+        return new Queue(`${this}.actions`)
     }
 
-    @action add(todoData: Partial<Todo>) {
+    protected actionDisabled(action?: ActionId | ActionId[] | void): boolean {
+        return this.actions.find(action).pending
+    }
+
+    @action create(todoData: Partial<Todo>) {
         const todo = new Todo({...todoData, _: this._})
         this.todos = [...this.todos, todo]
-        this.queue.run(() => {
-            const {id}: {id: string} = this._.fetch('/api/todo', {
+        this.actions.run(() => {
+            const resp: {id: string, created: string} = this._.fetch('/api/todo', {
                 method: 'PUT',
                 body: JSON.stringify(todo)
             })
-            todo.id = id
+            this.todos = this.todos.map(t => t.id === todo.id
+                ? todo.copy({
+                    ...resp,
+                    created: new Date(resp.created)
+                })
+                : t
+            )
         }, todo.create)
     }
 
@@ -104,27 +113,30 @@ export class TodoRepository implements ITodoRepository {
         ])
     }
 
+    updating(todo: Todo): boolean {
+        return this.actionDisabled(todo.update)
+    }
+
     @action update(todo: Todo) {
-        this.queue.find(todo.update).abort()
-        this.queue.run(() => {
+        this.actions.find(todo.update).abort()
+        const newTodos = this.todos.map(t => t.id === todo.id ? todo : t)
+        this.todos = newTodos
+        this.actions.run(() => {
             this._.fetch(`/api/todo/${todo.id}`, {
                 method: 'POST',
                 body: JSON.stringify(todo)
             })
-        })
+        }, todo.update)
     }
 
     removeDisabled(todo: Todo): boolean {
-        return this.actionDisabled([
-            todo.remove,
-            todo.create
-        ])
+        return this.updateDisabled(todo)
     }
 
     @action remove(todo: Todo) {
-        this.queue.find(todo.update).abort()
-        this.queue.run(() => {
-            this.queue.find([
+        this.actions.find(todo.update).abort()
+        this.actions.run(() => {
+            this.actions.find([
                 this.toggleAll,
                 this.completeAll,
                 this.clearCompleted,
@@ -137,7 +149,8 @@ export class TodoRepository implements ITodoRepository {
     protected patch(patches: [string, Partial<Todo>][]) {
         this._.fetch('/api/todos', {method: 'PUT', body: JSON.stringify(patches)})
         const patchMap = new Map(patches)
-        this.todos = this.todos.map(todo => todo.copy(patchMap.get(todo.id)))
+        const newTodos = this.todos.map(todo => todo.copy(patchMap.get(todo.id)))
+        this.todos = newTodos
     }
 
     get toggleAllDisabled(): boolean {
@@ -149,8 +162,8 @@ export class TodoRepository implements ITodoRepository {
     }
 
     @action toggleAll() {
-        this.queue.run(() => {
-            this.queue.find([this.add, this.update, this.remove]).wait()
+        this.actions.run(() => {
+            this.actions.find([this.create, this.update, this.remove]).wait()
             const todos = this.todos
             const completed = !!todos.find(todo => !todo.completed)
             const patches = todos.map(todo => ([todo.id, {completed}] as [string, Partial<Todo>]))
@@ -163,8 +176,8 @@ export class TodoRepository implements ITodoRepository {
     }
 
     @action completeAll() {
-        this.queue.run(() => {
-            this.queue.find([this.add, this.update, this.remove]).wait()
+        this.actions.run(() => {
+            this.actions.find([this.create, this.update, this.remove]).wait()
             const incomplete = this.todos.filter(t => !t.completed)
             const patches = incomplete.map(todo => (
                 [todo.id, {completed: true}] as [string, Partial<Todo>]
@@ -178,8 +191,8 @@ export class TodoRepository implements ITodoRepository {
     }
 
     @action clearCompleted() {
-        this.queue.run(() => {
-            this.queue.find([this.add, this.update, this.remove]).wait()
+        this.actions.run(() => {
+            this.actions.find([this.create, this.update, this.remove]).wait()
             const delIds = this.todos
                 .filter(todo => todo.completed)
                 .map(todo => todo.id)
