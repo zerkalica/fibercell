@@ -7,12 +7,26 @@ const ESCAPE_KEY = 27
 const ENTER_KEY = 13
 
 class TodoItemEdit {
-    @mem todoBeingEditedId: string | void = null
-    @mem editText: string = ''
+    @mem todoBeingEditedId: string | void
+    @mem editText: string
+
+    todo: Todo
+
+    protected id: string
 
     constructor(
-        public todo: Todo
-    ) {}
+        opts: {
+            id: string
+            todo: Todo
+        }
+    ) {
+        this.id = opts.id
+        this.todo = opts.todo
+        this.editText = ''
+        this.todoBeingEditedId = null
+    }
+
+    toString() { return this.id }
 
     @action beginEdit() {
         const {todo} = this
@@ -72,8 +86,9 @@ class TodoItemEdit {
 }
 
 class TodoItemTheme {
-    @mem get css() {
+    css = this.getCss()
 
+    getCss() {
         const destroy = style({
             padding: 0,
             border: 0,
@@ -210,10 +225,14 @@ export interface TodoItemProps {
     readonly todo: Todo
 }
 
+const theme = new TodoItemTheme()
+
 @observer
 export class TodoItem extends React.Component<TodoItemProps> {
-    protected todoItemEdit = new TodoItemEdit(this.props.todo)
-    protected theme = new TodoItemTheme()
+    protected todoItemEdit = new TodoItemEdit({
+        id: `${this.props.id}.todoItemEdit`,
+        todo: this.props.todo
+    })
 
     componentDidUpdate() {
         this.todoItemEdit.todo = this.props.todo
@@ -222,7 +241,6 @@ export class TodoItem extends React.Component<TodoItemProps> {
     render() {
         const {
             todoItemEdit,
-            theme,
             props: {
                 id,
                 todo
@@ -273,7 +291,7 @@ export class TodoItem extends React.Component<TodoItemProps> {
             </label>
             <button
                 id={`${id}-destroy`}
-                className={css.destroy + ' $destroy'}
+                className={css.destroy}
                 disabled={todo.removeDisabled}
                 onClick={todoItemEdit.remove}
             />

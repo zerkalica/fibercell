@@ -1,10 +1,10 @@
 import {Fiber, FiberHost, FiberController} from './fibers/Fiber'
 import {FiberCache} from './fibers/FiberCache'
-import {conform, hasDestructor, rollback, isPromise} from './utils'
+import {Logger, conform, hasDestructor, rollback, isPromise} from './utils'
 
 export enum CellStatus {
     OBSOLETE = 'OBSOLETE',
-    CHECKED = 'CHECKED',
+    ACTUAL = 'ACTUAL',
     PENDING = 'PENDING',
     MOCK = 'MOCK',
 }
@@ -69,6 +69,8 @@ export class Cell<V> implements FiberController, FiberHost, ICell {
                 if (newSuggested !== this.actual) {
                     this.suggested = newSuggested
                     this.status = CellStatus.OBSOLETE
+                    if (this.fibers) this.fibers.destructor()
+                    this.fibers = undefined
                 }
             }
         }
@@ -86,8 +88,8 @@ export class Cell<V> implements FiberController, FiberHost, ICell {
     protected fibers: FiberCache | void = undefined
 
     fiber<K, V>(key: K, async?: boolean): Fiber<V> {
-        if (!this.fibers) this.fibers = new FiberCache()
-        return this.fibers.fiber(key, this, async)
+        if (!this.fibers) this.fibers = new FiberCache(this)
+        return this.fibers.fiber(key, async)
     }
 
     /**
@@ -140,27 +142,30 @@ export class Cell<V> implements FiberController, FiberHost, ICell {
         let isChanged = false
 
         const {suggested} = this
+        const oldActual = this.actual
         try {
             let next: V = this.handler(suggested)
 
             if (next === undefined) next = context.result
             if (next === undefined) next = suggested
 
-            const actual: V = conform(next, this.actual)
+            const actual: V = conform(next, oldActual)
             if (
-                actual !== this.actual
+                actual !== oldActual
                 || this.catched
             ) isChanged = true
 
-            this.status = CellStatus.CHECKED
+            this.status = CellStatus.ACTUAL
             this.actual = actual
             this.catched = undefined
             this.suggested = undefined
             if (this.fibers) this.fibers.destructor()
             this.fibers = undefined
             if (hasDestructor(actual) && !owners.has(actual)) owners.set(actual, this)
+            if (isChanged) Logger.current.changed(this, oldActual, actual)
         } catch (error) {
             if (this.catched !== error) isChanged = true
+            if (isChanged) Logger.current.changed(this, oldActual, error)
             this.setError(error, true)
         }
 
@@ -186,7 +191,7 @@ export class Cell<V> implements FiberController, FiberHost, ICell {
 
         if (this.fibers) this.fibers.destructor()
         this.fibers = undefined
-        this.status = CellStatus.CHECKED
+        this.status = CellStatus.ACTUAL
         if (!noReport) this.reportChanged()
     }
 
@@ -209,5 +214,6 @@ export class Cell<V> implements FiberController, FiberHost, ICell {
         this.dispose = undefined
         this.handler = undefined
         this.suggested = undefined
+        Logger.current.destructed(this)
     }
 }

@@ -4,13 +4,26 @@ import {TodoRepository} from './models'
 import {observer, sheet, Deps } from '../common'
 
 class TodoToAdd {
-    @mem title: string = ''
+    @mem title: string
+    protected _: {
+        todoRepository: TodoRepository
+    }
+    protected id: string
 
     constructor(
-        protected _: {
-            todoRepository: TodoRepository
+        opts: {
+            id: string
+            _: {
+                todoRepository: TodoRepository
+            }
         }
-    ) {}
+    ) {
+        this.id = opts.id
+        this._ = opts._
+        this.title = ''
+    }
+
+    toString() { return this.id }
 
     @action.defer setRef(ref: HTMLInputElement | void) {
         if (ref) ref.focus()
@@ -70,7 +83,10 @@ export interface TodoHeaderProps {
 
 @observer
 export class TodoHeader extends React.Component<TodoHeaderProps> {
-    protected todoToAdd = new TodoToAdd(this.props._)
+    protected todoToAdd = new TodoToAdd({
+        _: this.props._,
+        id: `${this.props.id}.todoToAdd`,
+    })
 
     render() {
         const {

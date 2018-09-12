@@ -1,3 +1,3 @@
 export function uuid(): string {
-    return `${Math.random()}.${Date.now()}.tmp`.substring(2)
+    return `${Math.random()}${Date.now()}`.substring(2)
 }

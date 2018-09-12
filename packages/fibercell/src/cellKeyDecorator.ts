@@ -1,6 +1,7 @@
-import { toValueMap, setFunctionName, getId } from './utils'
+import {setFunctionName} from './utils'
 import { cellDecoratorState } from './cellDecorator'
 import { Cell } from './Cell'
+import {toValueMap} from './toValueMap'
 
 function cleanMap<K, V>(
     key: K,
@@ -29,6 +30,8 @@ export type CellKeyMethodDecorator<K, V> = <Method extends CellKeyMethod<K, V>>(
     descr: TypedPropertyDescriptor<Method>
 ) => TypedPropertyDescriptor<Method>
 
+const objToString = Object.prototype.toString
+
 function cellKeyMethodDecorator<K, V, Method extends CellKeyMethod<K, V>>(
     proto: Object,
     name: string | symbol,
@@ -36,7 +39,8 @@ function cellKeyMethodDecorator<K, V, Method extends CellKeyMethod<K, V>>(
     valueDestructor?: void | ((key: K) => void),
     destructor?: (() => void) | void
 ): TypedPropertyDescriptor<Method> {
-    const displayName = getId(proto, name)
+    const propName = String(name)
+    const staticName = `${proto.constructor.name}.${propName}`
 
     const cells: WeakMap<Object, Map<K, Cell<V>>> = new WeakMap()
     const cf = cellDecoratorState
@@ -51,9 +55,11 @@ function cellKeyMethodDecorator<K, V, Method extends CellKeyMethod<K, V>>(
         let cell = cellMap.get(key)
 
         if (cell === undefined) {
+            const cellName = `${this.toString === objToString ? staticName : String(this)}.${propName}('${String(key)}')`
+
             cell = new cf.FiberCell(
-                displayName,
-                handler.bind(this, key),
+                cellName,
+                setFunctionName(handler.bind(this, key), `${cellName}$handler`),
                 cleanMap.bind(this, key, cellMap, cells, valueDestructor, destructor)
             )
             cellMap.set(key, cell)
@@ -70,7 +76,7 @@ function cellKeyMethodDecorator<K, V, Method extends CellKeyMethod<K, V>>(
         return cell.value(next)
     }
 
-    setFunctionName(value, `${displayName}()`)
+    setFunctionName(value, `${staticName}$cell.key`)
 
     return {
         enumerable: descr.enumerable,

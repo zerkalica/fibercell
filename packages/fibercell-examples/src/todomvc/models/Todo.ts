@@ -1,11 +1,15 @@
 import {action} from 'fibercell'
+import { uuid } from '../../common';
 
 export interface ITodoRepository {
     updating(todo: Todo): boolean
     updateDisabled(todo: Todo): boolean
     update(todo: Todo): void
+
     removeDisabled(todo: Todo): boolean
     remove(todo: Todo): void
+
+    create(todo: Todo): void
 }
 
 export interface ITodo {
@@ -25,10 +29,10 @@ export interface TodoContext {
 }
 
 export class Todo implements ITodo {
-    readonly id: string
-    readonly completed: boolean
-    readonly title: string
-    readonly created: Date
+    readonly id: string = uuid()
+    readonly completed: boolean = false
+    readonly title: string = ''
+    readonly created: Date = new Date()
 
     protected _: TodoContext
 
@@ -47,8 +51,12 @@ export class Todo implements ITodo {
 
     copy(data?: Partial<Todo> | void): Todo {
         return data
-            ? new Todo({...this as Partial<Todo>, ...data, create: this.create, _: this._})
+            ? new Todo({...this as Partial<Todo>, ...data, _: this._})
             : this
+    }
+
+    @action create() {
+        this._.todoRepository.create(this)
     }
 
     get updateDisabled() {
@@ -58,8 +66,6 @@ export class Todo implements ITodo {
     get updating() {
         return this._.todoRepository.updating(this)
     }
-
-    create = Symbol('create')
 
     @action update(data?: Partial<Todo>) {
         this._.todoRepository.update(this.copy(data))

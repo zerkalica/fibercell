@@ -2,10 +2,10 @@ import * as React from 'react'
 import {TodoApp} from './todomvc'
 import {Hello} from './hello'
 import {observer, sheet, PageRepository, Deps, LocationStore, Omit, Sheet} from './common'
-import { fiberize, mem } from 'fibercell'
+import { fiberize } from 'fibercell'
 
 class AppTheme {
-    @mem get css() {
+    get css() {
         const menuButton = {
             margin: 0,
             display: 'block',
@@ -61,6 +61,8 @@ class AppTheme {
     }
 }
 
+const css = new AppTheme().css
+
 export interface AppProps {
     id: string
     _: Omit<Deps<typeof TodoApp>
@@ -72,12 +74,13 @@ export interface AppProps {
 export class App extends React.Component<AppProps> {
     protected _ = {
         ...this.props._,
-        locationStore: new LocationStore(this.props._, this.props.id),
+        locationStore: new LocationStore(this.props._, `${this.props.id}.locationStore`),
         fetch: fiberize(this.props._.fetchFn, r => r.json())
     }
 
     protected pageRepository = new PageRepository({
         _: this._,
+        id: `${this.props.id}.pageRepository`,
         pages: [
             {
                 id: 'todomvc',
@@ -91,12 +94,9 @@ export class App extends React.Component<AppProps> {
         key: 'page'
     })
 
-    protected appTheme = new AppTheme()
-
     render() {
         const {
             _,
-            appTheme: {css},
             pageRepository: {setPageId, getPageUrl, pages, page},
             props: {id}
         } = this

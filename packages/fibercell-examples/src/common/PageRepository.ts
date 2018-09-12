@@ -19,16 +19,21 @@ export class PageRepository<Page extends BasePage> {
     protected readonly pages: Page[]
     protected readonly key: string
     protected readonly _: PageRepositoryContext
+    protected id: string
 
     constructor(opts: {
+        id: string
         pages: Page[]
         key: string
         _: PageRepositoryContext
     }) {
+        this.id = opts.id
         this.pages = opts.pages
         this.key = opts.key
         this._ = opts._
     }
+
+    toString() { return this.id }
 
     @action setPageId(e: SetPageIdEvent) {
         e.preventDefault()

@@ -33,7 +33,9 @@ class TodoFooterService {
         this._.todoRepository.filter = linkid as TODO_FILTER
     }
 
-    @mem get css() {
+    css = this.getCss()
+
+    protected getCss() {
         const linkBase = {
             color: 'inherit',
             margin: '3px',

@@ -1,6 +1,6 @@
 import './bootstrap'
 import config from './config'
-import {setupCellClass} from 'fibercell'
+import {setupCellClass, Logger} from 'fibercell'
 import {MobxCell} from 'fibercell-mobx'
 import * as ReactDOM from 'react-dom'
 import * as React from 'react'
@@ -22,6 +22,8 @@ const _: Deps<typeof App> = {
     location: window.location,
     history: window.history
 }
+
+Logger.current.filter = /.*/
 
 ReactDOM.render(
     <App

@@ -17,13 +17,17 @@ export class Queue {
     toString() { return this.displayName }
 
     find(actionId?: ActionId | ActionId[] | void, throwPromise?: boolean): TaskQuery {
-        const query = new TaskQuery(actionId, throwPromise)
+        const id = actionId instanceof Array
+            ? actionId.map(id => id.name).join(', ')
+            : (actionId && actionId.name)
+
+        const query = new TaskQuery(`${this}.find(${id})`, actionId, throwPromise)
         this.status
         if (this.tasks) query.add(this.tasks)
         return query
     }
 
-    run(handler: () => void, ids?: ActionId | ActionId[] | void): void {
+    run(handler: () => void, ids?: ActionId | ActionId[]): void {
         if (!this.tasks) return
         let actionId: ActionId | void
         let actionGroup: ActionId | void
@@ -40,11 +44,14 @@ export class Queue {
         if (!actionId && actionIds.length > 0)
             actionId = actionIds[actionIds.length - 2] || actionGroup
 
+
         if (!actionId) throw Error(
-            `${this.displayName}.run(${handler.name}): no any actionId provided: wrap in action decorator or provide second argument`
+            `${this}.run(${handler}): no any actionId provided: wrap in @action decorator or provide action id in second argument`
         )
+        const taskId = `${this}.action(${actionId.name})`
 
         const task = new Task(
+            taskId,
             actionId,
             actionGroup,
             this,

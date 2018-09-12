@@ -85,8 +85,13 @@ export class TodoRepository implements ITodoRepository {
         return this.actions.find(action).pending
     }
 
-    @action create(todoData: Partial<Todo>) {
+    @action create(todoData: Partial<Todo> | Todo) {
         const todo = new Todo({...todoData, _: this._})
+        if (!(todoData instanceof Todo)) {
+            todo.create()
+            return
+        }
+
         this.todos = [...this.todos, todo]
         this.actions.run(() => {
             const resp: {id: string, created: string} = this._.fetch('/api/todo', {
@@ -100,7 +105,7 @@ export class TodoRepository implements ITodoRepository {
                 })
                 : t
             )
-        }, todo.create)
+        })
     }
 
     updateDisabled(todo: Todo): boolean {
@@ -126,7 +131,7 @@ export class TodoRepository implements ITodoRepository {
                 method: 'POST',
                 body: JSON.stringify(todo)
             })
-        }, todo.update)
+        })
     }
 
     removeDisabled(todo: Todo): boolean {
@@ -192,6 +197,7 @@ export class TodoRepository implements ITodoRepository {
 
     @action clearCompleted() {
         this.actions.run(() => {
+            // const actions = this.todos.reduce((acc, todo) => [...acc, todo.create, todo.update, todo.remove], [] as ActionId[])
             this.actions.find([this.create, this.update, this.remove]).wait()
             const delIds = this.todos
                 .filter(todo => todo.completed)

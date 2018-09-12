@@ -1,4 +1,5 @@
-import {isPromise, proxifyError} from '../utils'
+import {isPromise} from '../utils/common'
+import {proxifyError} from '../utils/proxify'
 
 const fiberKey = Symbol('Fiber')
 

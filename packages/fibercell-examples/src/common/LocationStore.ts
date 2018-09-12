@@ -6,8 +6,11 @@ export class LocationStore {
             location: Location,
             history: History,
         },
+        protected id: string,
         protected ns: string = 'app'
     ) {}
+
+    toString() { return this.id }
 
     protected params(): URLSearchParams {
         return new URLSearchParams(this._.location.search)
@@ -34,10 +37,6 @@ export class LocationStore {
         const q = this.paramsToString(params)
 
         return `${this._.location.origin}${q}${hash ? `#${hash}` : ''}`
-    }
-
-    toString() {
-        return this.toUrl()
     }
 
     @mem.key(LocationStore.prototype.valueDestructor) value<V>(key: string, value?: V): V {

@@ -1,5 +1,5 @@
 import {Cell, ICell} from './Cell'
-import {setFunctionName, getId} from './utils'
+import {setFunctionName} from './utils'
 
 export type CellProperty<V> = ((a: any, ...args: any[]) => any) extends V ? never : any
 
@@ -43,20 +43,23 @@ export type CellPropertyDecorator<V extends CellProperty<V>> = (
     ) => void
 )
 
+const objToString = Object.prototype.toString
+
 function cellPropertyDecorator<V extends CellProperty<V>>(
     proto: Object,
     name: string | symbol,
     descr?: (TypedPropertyDescriptor<V> & {initializer?: () => V}) | void,
     destructor?: void | (() => void)
 ): TypedPropertyDescriptor<V> {
-    const displayName = getId(proto, name)
+    const propName = String(name)
+    const staticName = `${proto.constructor.name}.${propName}`
     const get: () => V = (descr && (descr.get || descr.initializer)) || valueGet
     const set: (next: V) => void = (descr && descr.set) || valueSet
 
     function handler<V>(next?: V): V {
         return next === undefined ? get.call(this) : set.call(this, next)
     }
-    setFunctionName(handler, `${displayName}$get_set`)
+    setFunctionName(handler, `${staticName}$handler`)
 
     const cells: WeakMap<Object, Cell<V>> = new WeakMap()
     const cf = cellDecoratorState
@@ -64,7 +67,7 @@ function cellPropertyDecorator<V extends CellProperty<V>>(
         let cell: Cell<V> | void = cells.get(this)
         if (cell === undefined) {
             cell = new cf.FiberCell(
-                displayName,
+                this.toString === objToString ? staticName : `${String(this)}.${propName}`,
                 handler.bind(this),
                 cleanCell.bind(this, cells, destructor)
             )
@@ -86,7 +89,7 @@ function cellPropertyDecorator<V extends CellProperty<V>>(
         return cell.value(next)
     }
 
-    setFunctionName(value, `${displayName}()`)
+    setFunctionName(value, `${staticName}$cell`)
 
     return {
         enumerable: descr ? descr.enumerable : false,

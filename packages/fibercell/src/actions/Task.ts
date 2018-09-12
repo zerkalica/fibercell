@@ -1,26 +1,27 @@
 import {Fiber, FiberController, FiberHost} from '../fibers/Fiber'
 import {FiberCache} from '../fibers/FiberCache'
-import {rollback} from '../utils'
+import {rollback, Logger} from '../utils'
 
 export interface TaskController {
     remove(task: Task): void
     pull(): void
 }
 
-export type ActionId = Object | Function | symbol | string
+export type ActionId = Function
 const pending = Promise.resolve()
 
 export class Task implements FiberController, FiberHost {
     protected error: Error | Promise<any> | void = undefined
 
     constructor(
+        protected displayName: string,
         public actionId: ActionId,
         public actionGroup: ActionId | void,
         protected controller: TaskController | void,
         protected handler: (task: Task) => void
     ) {}
 
-    toString() { return String(this.actionId) }
+    toString() { return this.displayName }
 
     value(): Error | Promise<any> | void {
         if (!this.controller) return
@@ -28,8 +29,9 @@ export class Task implements FiberController, FiberHost {
 
         const oldHost = Fiber.host
         Fiber.host = this
-        const fibers = this.fibers || new FiberCache()
+        const fibers = this.fibers || new FiberCache(this)
         const size = fibers.size
+        const oldError = this.error
         try {
             this.error = pending
             this.handler(this)
@@ -43,6 +45,7 @@ export class Task implements FiberController, FiberHost {
             this.error = error
         }
         Fiber.host = oldHost
+        Logger.current.changed(this, oldError, this.error)
 
         return this.error
     }
@@ -50,8 +53,8 @@ export class Task implements FiberController, FiberHost {
     protected fibers: FiberCache | void = undefined
 
     fiber<K, V>(key: K, async?: boolean): Fiber<V> {
-        if (!this.fibers) this.fibers = new FiberCache()
-        return this.fibers.fiber(key, this, async)
+        if (!this.fibers) this.fibers = new FiberCache(this)
+        return this.fibers.fiber(key, async)
     }
 
     protected reset() {

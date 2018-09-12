@@ -28,7 +28,7 @@ export class TodoApp extends React.Component<TodoAppProps> {
     protected _ = {
         ...this.props._,
         todoRepository: new TodoRepository({
-            id: this.props.id + '-todoRepository',
+            id: this.props.id + '.todoRepository',
             _: this.props._
         })
     }

@@ -1,5 +1,5 @@
 import {unproxifyError} from './proxify'
-import { isPromise } from './common'
+import { Logger } from './Logger'
 
 const rollbackKey = Symbol('rollback')
 
@@ -26,6 +26,6 @@ export function rollback(rawData: any, cb?: (() => void)): void {
     try {
         data[rollbackKey]()
     } catch (error) {
-        console.warn(error)
+        Logger.current.rollbackError(rawData, error)
     }
 }

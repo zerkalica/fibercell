@@ -6,6 +6,7 @@ export class TaskQuery {
     protected actionIds: ActionId[] | void
 
     constructor(
+        protected displayName: string,
         actionId?: ActionId[] | ActionId | void,
         protected throwPromise: boolean = true
     ) {
@@ -13,6 +14,8 @@ export class TaskQuery {
             ? actionId
             : (actionId ? [actionId] : undefined)
     }
+
+    toString() { return this.displayName }
 
     add(raw: Task[] | TaskQuery): this {
         const {actionIds} = this

@@ -11,6 +11,12 @@ export class FiberCache {
      */
     protected fibers: Map<any, Fiber<any>> = new Map()
 
+    constructor(
+        protected controller: FiberController
+    ) {}
+
+    toString() { return `${String(this.controller)}.fibers` }
+
     get size(): number {
         return this.fibers ? this.fibers.size : 0
     }
@@ -21,14 +27,14 @@ export class FiberCache {
      *
      * @param key Unique cache lookup key
      */
-    fiber<K, R>(key: K, controller: FiberController, async?: boolean): Fiber<R> {
+    fiber<K, R>(key: K, async?: boolean): Fiber<R> {
         const fibers = this.fibers
- 
+
         let fiber = fibers.get(key)
         if (!fiber) {
             fiber = new Fiber(
-                `${controller}.fiber('${String(key)}')`,
-                controller,
+                `fiber('${String(key)}')`,
+                this.controller,
                 this.abortController.signal,
                 async
             )
@@ -42,5 +48,6 @@ export class FiberCache {
         this.abortController.abort()
         this.abortController = undefined
         this.fibers = undefined
+        this.controller = undefined
     }
 }
