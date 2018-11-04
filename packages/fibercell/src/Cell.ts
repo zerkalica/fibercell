@@ -1,219 +1,394 @@
-import {Fiber, FiberHost, FiberController} from './fibers/Fiber'
-import {FiberCache} from './fibers/FiberCache'
-import {Logger, conform, hasDestructor, rollback, isPromise} from './utils'
+import {schedule, conform, Owning, Logger, rethrow} from './utils'
+import {Fiber} from './Fiber'
+import {ArrayPool, Pull} from './Pool'
+
+const cellKey = Symbol('Cell')
+
+interface Free {
+    /**
+     * @throws Error | Promise
+     */
+    destructor(): void
+}
+
+interface Value {
+    /**
+     * @throws Error | Promise
+     */
+    start(): any
+}
+
+class CellScheduler extends Fiber {
+    protected frees: Free[] = []
+    protected roots: Value[] = []
+    protected timer: number | void = undefined
+
+    protected startBinded: () => void = this.start.bind(this)
+
+    mayBeFree(cell: Free) {
+        this.frees.push(cell)
+        if (this.timer === undefined) this.timer = schedule(this.startBinded)
+    }
+
+    evaluate(cell: Value) {
+        this.roots.push(cell)
+        if (this.timer === undefined) this.timer = schedule(this.startBinded)
+    }
+
+    protected freesPos = 0
+    protected rootsPos = 0
+
+    /**
+     * @throws Error | Promise
+     */
+    protected pull() {
+        const {roots, frees} = this
+
+        for (let i = this.rootsPos, l = roots.length; i < l; i++) {
+            roots[i].start()
+            this.rootsPos++
+        }
+        this.rootsPos = 0
+        while (roots.length) roots.pop()
+        // this.roots.length = 0
+
+        for (let i = this.freesPos, l = frees.length; i < l; i++) {
+            frees[i].destructor()
+            this.freesPos++
+        }
+        this.freesPos = 0
+        while (frees.length) frees.pop()
+        // this.frees.length = 0
+        this.timer = undefined
+    }
+}
+
+const scheduler = new CellScheduler('CellScheduller')
 
 export enum CellStatus {
     OBSOLETE = 'OBSOLETE',
-    ACTUAL = 'ACTUAL',
-    PENDING = 'PENDING',
-    MOCK = 'MOCK',
+    COMPUTE = 'COMPUTE',
+    CHECK = 'CHECK',
+    ACTUAL = 'ACTUAL'
 }
 
-export interface ICell {
-    retry(all?: boolean): void
-    abort(all?: boolean): void
-    readonly pending: boolean
-    readonly error: Error | void
+class Calc extends Fiber {
+    owner: Cell | void = undefined
 }
 
-const owners: WeakMap<Object, Cell<any>> = new WeakMap()
+const idsPool = new ArrayPool<number>(0)
 
-/**
- * Caches value, invokes pull/push value handler and manage cell fibers.
- */
-export class Cell<V> implements FiberController, FiberHost, ICell {
-    protected actual: V
-    protected catched: Error | Promise<V> | void = undefined
-
-    protected suggested: V = undefined
+export class Cell<Value = any, Next = Value> extends Fiber {
     protected status: CellStatus = CellStatus.OBSOLETE
 
-    /**
-     * Used for access current cell from fibers
-     */
-    static current: Cell<any> | void = undefined
+    protected slaves: Cell[] = []
+    protected masters: Cell[] = []
 
     constructor(
-        public readonly displayName: string,
+        protected host: Object,
+        getPropName: string,
+        protected setPropName: string,
+        protected key?: any,
         /**
-         * @throws Promise<V> | Error
+         * @throws Promise<Value> | Error
          **/
-        protected handler: (next?: V) => V,
-        protected dispose?: () => void,
-    ) {}
-
-    get pending(): boolean {
-        return this.status === CellStatus.PENDING || this.status === CellStatus.MOCK
+        protected dispose: ((key?: any) => void) | void = undefined
+    ) {
+        super(getPropName)
     }
 
-    get error(): Error | void {
-        return isPromise(this.catched) ? undefined : this.catched
-    }
+    get [Symbol.toStringTag]() { return this.toString() }
 
-    toString() { return this.displayName }
-    toJSON() { return this.actual }
+    private debugId: string
+
+    toString() {
+        return (
+            this.debugId ||
+            (this.debugId = `${this.host}.${this.name.substring(
+                0,
+                this.name.length - 3
+            )}${this.key ? `(${this.key})` : ''}`)
+        )
+    }
 
     /**
-     * Get/set actual value
-     *
-     * @throws Error | Promise<V>
-     *
-     * @param next suggested value
+     * @throws Error | Promise
      */
-    value(next?: V): V {
-        this.reportObserved()
-        if (next !== undefined) {
-            let newSuggested: V = conform(next, this.suggested)
-            if (newSuggested !== this.suggested) {
-                newSuggested = conform(next, this.actual)
-                if (newSuggested !== this.actual) {
-                    this.suggested = newSuggested
-                    this.status = CellStatus.OBSOLETE
-                    if (this.fibers) this.fibers.destructor()
-                    this.fibers = undefined
-                }
+    value(): Value {
+        // @todo: store result in parent fiber for actions
+
+        let slave: any = Fiber.current
+        // If this master called from Fiber - lookup Fiber owner cell.
+        if (slave instanceof Calc) slave = slave.owner
+        if (slave instanceof Cell) {
+            const {pool} = slave
+            if (this.poolId === pool.id) {
+                this.poolId = -pool.id
+            } else if (this.poolId !== -pool.id) {
+                pool.items.push(this.poolId)
+                this.poolId = -pool.id
+                slave.masters.push(this)
+                this.actualSlaves().push(slave)
             }
         }
 
-        if (this.status === CellStatus.OBSOLETE) this.actualize()
-        if (this.status !== CellStatus.MOCK && this.catched) throw this.catched
+        if (this.status === CellStatus.ACTUAL) {
+            if (this.result instanceof Error) rethrow(this.result)
+            return this.result as Value
+        }
+        this.start()
 
-        return this.actual
+        return this.result as Value
     }
 
-    protected reportObserved() {}
-
-    protected reportChanged() {}
-
-    protected fibers: FiberCache | void = undefined
-
-    fiber<K, V>(key: K, async?: boolean): Fiber<V> {
-        if (!this.fibers) this.fibers = new FiberCache(this)
-        return this.fibers.fiber(key, async)
-    }
+    protected result: Value | Error | void = undefined
 
     /**
-     * Destroys cell fibers: aborts cell-related async operations.
-     * If is action cell, disables action restarts while not called by user again.
+     * Called from fiber on throw Error
      */
-    abort() {
-        rollback(this.catched)
-        if (this.fibers) this.fibers.destructor()
-        this.fibers = undefined
-        this.catched = undefined
-        this.status = CellStatus.OBSOLETE
-        this.reportChanged()
-    }
-
-    /**
-     * Reset cell status to obsolete and report cell changes. Do not touches async operations in the cell fibers.
-     */
-    retry() {
-        this.status = CellStatus.OBSOLETE
-        this.reportChanged()
-    }
-
-    /**
-     * Pass value from set handler to current cell.
-     *
-     * Used in mem.return if need to set another value than passed into set handler
-     * 
-     * @example ```ts
-     * class Store {
-     *   @mem set value(val: number) {
-     *     if (val === 123) mem.return(321)
-     *   }
-     * }
-     * ```
-     */
-    static result: any = undefined
-
-    /**
-     * Invokes value handler, updates status and actual value.
-     */
-    actualize(): void {
-        if (this.status !== CellStatus.OBSOLETE) return
-
-        const context = (this.constructor as typeof Cell)
-        const host = Fiber.host
-        Fiber.host = this
-        context.result = undefined
-
-        let isChanged = false
-
-        const {suggested} = this
-        const oldActual = this.actual
-        try {
-            let next: V = this.handler(suggested)
-
-            if (next === undefined) next = context.result
-            if (next === undefined) next = suggested
-
-            const actual: V = conform(next, oldActual)
-            if (
-                actual !== oldActual
-                || this.catched
-            ) isChanged = true
-
-            this.status = CellStatus.ACTUAL
-            this.actual = actual
-            this.catched = undefined
-            this.suggested = undefined
-            if (this.fibers) this.fibers.destructor()
-            this.fibers = undefined
-            if (hasDestructor(actual) && !owners.has(actual)) owners.set(actual, this)
-            if (isChanged) Logger.current.changed(this, oldActual, actual)
-        } catch (error) {
-            if (this.catched !== error) isChanged = true
-            if (isChanged) Logger.current.changed(this, oldActual, error)
-            this.setError(error, true)
+    protected fail(error: Error) {
+        if (this.status === CellStatus.ACTUAL) return
+        if (this.pool) {
+            this.pool.release()
+            this.pool = undefined
         }
 
-        context.result = undefined
-        Fiber.host = host
-        if (isChanged) this.reportChanged()
-    }
+        this.result = error
 
-    setError(error: Error | Promise<any>, noReport?: boolean) {
-        this.catched = error
-        if (isPromise(error)) {
-            const context = (this.constructor as typeof Cell)
-            // Suggest mock value, while loading on first run
-            this.catched = error
-            if (context.result !== undefined) {
-                if (this.actual === undefined) this.actual = context.result
-                this.status = CellStatus.MOCK
-            } else {
-                this.status = CellStatus.PENDING
-            }
-            return
-        }
-
-        if (this.fibers) this.fibers.destructor()
-        this.fibers = undefined
         this.status = CellStatus.ACTUAL
-        if (!noReport) this.reportChanged()
+        for (let slave of this.actualSlaves()) slave.obsolete()
+
+        if (error[cellKey] === undefined) {
+            error[cellKey] = this
+            error.message = `[${this}]: ${error.message}`
+        }
     }
 
-    destructor() {
-        const actual = this.actual
-        if (hasDestructor(actual) && owners.get(actual) === this) {
-            owners.delete(actual)
-            try {
-                actual.destructor()
-            } catch (error) {
-                console.warn(`${this} error destructing ${actual}`, error)
+    static getCell<V>(error: any): Cell<V> | void {
+        return error[cellKey]
+    }
+
+    /**
+     * @throws Error | Promise
+     */
+    reset(): Value {
+        this.obsolete()
+        return this.value()
+    }
+
+    protected poolId = 0
+    protected slaveDeleteIndex = 0
+
+    protected pool: Pull<number> = undefined
+
+    /**
+     * @throws Error | Promise
+     */
+    protected pull(): Value {
+        const masters = this.masters
+        if (this.status === CellStatus.CHECK) {
+            for (let master of masters) master.value()
+            if (this.status === CellStatus.CHECK) {
+                this.status = CellStatus.ACTUAL
             }
         }
 
-        if (this.fibers) this.fibers.destructor()
-        this.fibers = undefined
-        if (this.dispose) this.dispose()
-        this.actual = undefined
+        if (this.status === CellStatus.ACTUAL) {
+            if (this.result instanceof Error) rethrow(this.result)
+            return this.result as Value
+        }
+
+        // assert(this.status === CellStatus.COMPUTE)
+        // assert(this.status === CellStatus.OBSOLETE)
+
+        const {items, id} = this.pool || (this.pool = idsPool.take())
+
+        if (this.status === CellStatus.OBSOLETE) {
+            for (let master of masters) {
+                items.push(master.poolId)
+                master.poolId = id
+            }
+        } else {
+            // assert(this.status === CellStatus.COMPUTE)
+            let i = masters.length
+            while (i--) {
+                const master = masters[i]
+                const prevId = items[i]
+                items[i] = master.poolId
+                master.poolId = prevId
+            }
+        }
+
+        // on throw Error calls this.fail
+        // on throw Promise calls this.wait
+        this.push(this.host[this.name](this.key))
+
+        // No exceptions
+        let i = masters.length
+        while (i--) {
+            const master = masters[i]
+            if (master.poolId === id) master.dislead(this)
+            master.poolId = items.pop()
+        }
+        this.pool.release()
+        this.pool = undefined
+
+        return this.result as Value
+    }
+
+    protected wait(p: Promise<any>): Promise<any> {
+        const {
+            masters,
+            pool: {items}
+        } = this
+        let i = masters.length
+        while (i--) {
+            const master = masters[i]
+            const prevId = items[i]
+            items[i] = master.poolId
+            master.poolId = prevId
+        }
+
+        return p
+    }
+
+    protected dislead(slave: Cell) {
+        const slaves = this.slaves
+
+        if (slaves.length === 1 && slaves[0] === slave) slaves.length = 0
+
+        if (slaves.length === 0) return scheduler.mayBeFree(this)
+
+        if (this.slaveDeleteIndex === 0) this.slaveDeleteIndex = slaves.length
+        slaves.push(slave)
+
+        if (slaves.length <= 2 * this.slaveDeleteIndex)
+            scheduler.mayBeFree(this)
+    }
+
+    static suggested: any = undefined
+
+    /**
+     * @throws Error | Promise
+     */
+    put(next: Next): Value {
+        const conformed = (conform(next, this.result) as any) as Value
+        if (conformed === this.result) return conformed
+        Cell.suggested = undefined
+        let result =
+            this.key === undefined
+                ? this.host[this.setPropName]((conformed as any) as Next)
+                : this.host[this.setPropName](
+                      this.key,
+                      (conformed as any) as Next
+                  )
+        if (result === undefined) result = Cell.suggested
+        if (result === undefined) result = conformed
+        Cell.suggested = undefined
+
+        return this.push(result)
+    }
+
+    /**
+     * @throws Error | Promise
+     */
+    protected push(next: Value): Value {
+        const prev = this.result
+        const value = conform(next, prev)
+        if (value !== prev) {
+            Owning.current.add(value, this)
+            // Can throw Promise
+            Owning.current.destruct(prev, this)
+            Logger.current.changed(this, prev, value)
+            this.result = value
+
+            for (let slave of this.actualSlaves()) slave.obsolete()
+        }
+        this.status = CellStatus.ACTUAL
+        this.destructFibers()
+
+        return this.result as Value
+    }
+
+    obsolete() {
+        const status = this.status
+        if (status === CellStatus.OBSOLETE || status === CellStatus.COMPUTE)
+            return
+        // assert(status === CellStatus.ACTUAL)
+        // assert(status === CellStatus.CHECK)
         this.status = CellStatus.OBSOLETE
+        if (status === CellStatus.CHECK) return
+
+        this.restart()
+    }
+
+    check() {
+        if (
+            this.status === CellStatus.ACTUAL ||
+            this.status === CellStatus.COMPUTE
+        ) {
+            this.status = CellStatus.CHECK
+        }
+
+        this.restart()
+    }
+
+    protected deleted = false
+
+    protected actualSlaves(): Cell[] {
+        const {slaves, slaveDeleteIndex} = this
+        if (slaveDeleteIndex === 0) return slaves
+
+        let delta = slaves.length - slaveDeleteIndex
+        while (delta--) {
+            slaves.pop().deleted = true
+        }
+        let k = 0
+ 
+        for (let i = 0; i < slaveDeleteIndex; i++) {
+            const slave = slaves[i]
+            if (!slave.deleted && k !== i) slaves[k++] = slave
+            slave.deleted = false
+        }
+        slaves.length = k
+        this.slaveDeleteIndex = 0
+
+        return slaves
+    }
+
+    protected restart() {
+        const slaves = this.actualSlaves()
+        if (slaves.length === 0) return scheduler.evaluate(this)
+        for (let slave of slaves) slave.check()
+    }
+
+    /**
+     * @throws Error | Promise
+     */
+    destructor() {
+        if (this.masters === undefined) return
+        if (this.actualSlaves().length !== 0) return
+
+        this.destructFibers()
+
+        if (this.dispose) this.dispose(this.key)
         this.dispose = undefined
-        this.handler = undefined
-        this.suggested = undefined
-        Logger.current.destructed(this)
+
+        Owning.current.destruct(this.result, this)
+
+        Logger.current.free(this)
+
+        if (this.pool) {
+            this.pool.release()
+            this.pool = undefined
+        }
+
+        this.result = undefined
+
+        this.status = CellStatus.OBSOLETE
+        this.slaves = undefined
+
+        for (let master of this.masters) master.dislead(this)
+        this.masters = undefined
     }
 }

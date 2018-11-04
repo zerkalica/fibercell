@@ -1,14 +1,14 @@
 import {Cell} from './Cell'
 import {cellDecorator, CellDecorator} from './cellDecorator'
 import {cellKeyDecorator} from './cellKeyDecorator'
-import {action} from './actions'
+//import {action} from './actions'
 import {rollback} from './utils'
 
 /**
  * Public API cell facade
  */
 export interface IMem extends CellDecorator {
-    action: typeof action
+    // action: typeof action
     key: typeof cellKeyDecorator
 
     /**
@@ -37,10 +37,10 @@ export interface IMem extends CellDecorator {
  * Public API facade
  */
 export const mem = cellDecorator as IMem
-mem.action = action
+//mem.action = action
 mem.key = cellKeyDecorator
 mem.throwRollback = rollback
 mem.suggest = <V>(v: V) => {
-    Cell.result = v
+    Cell.suggested = v
     return v
 }

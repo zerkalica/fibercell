@@ -3,22 +3,28 @@ import { cellDecoratorState } from './cellDecorator'
 import { Cell } from './Cell'
 import {toValueMap} from './toValueMap'
 
+/**
+ * @throws Error | Promise
+ */
 function cleanMap<K, V>(
-    key: K,
-    cellMap: Map<K, V>,
     cells: WeakMap<Object, Map<K, V>>,
-    valueDestructor?: void | ((key: K) => void),
-    destructor?: void | (() => void)
+    /**
+     * @throws Error | Promise
+     */
+    destructor: void | (() => void),
+    /**
+     * @throws Error | Promise
+     */
+    valueDestructor: void | ((key: K) => void),
+    cellMap: Map<K, V>,
+    key: K
 ) {
-    try {
-        cellMap.delete(key)
-        if (valueDestructor) valueDestructor.call(this, key)
-        if (cellMap.size === 0) {
-            if (destructor) destructor.call(this)
-            cells.delete(this)
-        }
-    } catch (error) {
-        console.warn(error)
+    if (valueDestructor && cellMap.has(key)) valueDestructor.call(this, key)
+    cellMap.delete(key)
+
+    if (cellMap.size === 0 && cells.has(this)) {
+        if (destructor) destructor.call(this)
+        cells.delete(this)
     }
 }
 
@@ -30,8 +36,6 @@ export type CellKeyMethodDecorator<K, V> = <Method extends CellKeyMethod<K, V>>(
     descr: TypedPropertyDescriptor<Method>
 ) => TypedPropertyDescriptor<Method>
 
-const objToString = Object.prototype.toString
-
 function cellKeyMethodDecorator<K, V, Method extends CellKeyMethod<K, V>>(
     proto: Object,
     name: string | symbol,
@@ -40,12 +44,17 @@ function cellKeyMethodDecorator<K, V, Method extends CellKeyMethod<K, V>>(
     destructor?: (() => void) | void
 ): TypedPropertyDescriptor<Method> {
     const propName = String(name)
-    const staticName = `${proto.constructor.name}.${propName}`
 
     const cells: WeakMap<Object, Map<K, Cell<V>>> = new WeakMap()
     const cf = cellDecoratorState
-    const handler: Method = descr.value
 
+    const mapPropName = `${propName}#map`
+
+    proto[mapPropName] = descr.value
+
+    /**
+     * @throws Error or Promise
+     */
     function value(key: K, next?: V): V {
         let cellMap = cells.get(this)
         if (cellMap === undefined) {
@@ -55,12 +64,12 @@ function cellKeyMethodDecorator<K, V, Method extends CellKeyMethod<K, V>>(
         let cell = cellMap.get(key)
 
         if (cell === undefined) {
-            const cellName = `${this.toString === objToString ? staticName : String(this)}.${propName}('${String(key)}')`
-
             cell = new cf.FiberCell(
-                cellName,
-                setFunctionName(handler.bind(this, key), `${cellName}$handler`),
-                cleanMap.bind(this, key, cellMap, cells, valueDestructor, destructor)
+                this,
+                mapPropName,
+                mapPropName,
+                '' + key,
+                cleanMap.bind(this, cells, destructor, valueDestructor, cellMap)
             )
             cellMap.set(key, cell)
         }
@@ -73,10 +82,8 @@ function cellKeyMethodDecorator<K, V, Method extends CellKeyMethod<K, V>>(
             return cellMap as any
         }
 
-        return cell.value(next)
+        return next === undefined ? cell.value() : cell.put(next)
     }
-
-    setFunctionName(value, `${staticName}$cell.key`)
 
     return {
         enumerable: descr.enumerable,

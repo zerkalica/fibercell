@@ -1,6 +1,3 @@
-import { isPromise } from './common'
-import { Fiber } from '../fibers'
-
 export interface LoggerConsole {
     debug(message?: any, ...args: any[]): void
     error(message?: any, ...args: any[]): void
@@ -38,24 +35,47 @@ export class Logger {
         )
     }
 
+    /**
+     * @throws Promise or Error
+     */
     actionError(target: string, error: Error) {
         this.message(target, 'error', 'action', error)
     }
 
+    /**
+     * @throws Promise or Error
+     */
     rollbackError(target: string, error: Error) {
         this.message(target, 'error', 'rollback', error)
     }
 
-    destructed(target: Object) {
+    /**
+     * @throws Promise or Error
+     */
+    free(target: Object) {
         if (!this.filter) return
-        this.message(String(target), 'debug', 'destructed')
+        this.message(String(target), 'debug', 'free')
     }
 
+    /**
+     * @throws Promise or Error
+     */
     rendered(target: Object) {
         if (!this.filter) return
         this.message(String(target), 'debug', 'rendered')
     }
 
+    /**
+     * @throws Promise or Error
+     */
+    destructError(target: Object, actual: any, error: Error) {
+        if (!this.filter) return
+        this.message(String(target), 'warn', 'destruct', actual, error)
+    }
+
+    /**
+     * @throws Promise or Error
+     */
     changed<V>(target: Object, from: Promise<V> | Error | V, to: Promise<V> | Error | V) {
         if (!this.filter) return
         const name = String(target)
@@ -66,9 +86,6 @@ export class Logger {
         let toValue: any = to
         if (from instanceof Error) method = 'warn'
         if (to instanceof Error) method = 'error'
-
-        if ((from instanceof Error || isPromise(from)) && Fiber.from(from)) fromValue = String(Fiber.from(from))
-        if ((to instanceof Error || isPromise(to)) && Fiber.from(to)) toValue = String(Fiber.from(to))
 
         this.message(
             name,

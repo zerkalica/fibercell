@@ -1,5 +1,5 @@
-export * from './Defer'
 export * from './Logger'
+export * from './Owning'
 export * from './common'
 export * from './conform'
 export * from './proxify'
